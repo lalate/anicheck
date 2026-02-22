@@ -1,0 +1,30 @@
+[
+  {
+    "time": "23:00",
+    "title": "葬送のフリーレン",
+    "ep_num": 34,
+    "station": "日本テレビ系",
+    "status": "normal",
+    "original_vol": 8,
+    "youtube_id": "1VERVXiwNgY",
+    "amazon_kindle_url": "https://www.amazon.co.jp/dp/B08FDH57JT",
+    "isNotified": false,
+    "source_links": {
+      "web_novel": "https://ncode.syosetu.com/...",
+      "light_novel_amazon": "...",
+      "manga_amazon": "https://www.amazon.co.jp/dp/B08FDH57JT"
+    }
+  },
+  {
+    "time": "24:26",
+    "title": "呪術廻戦 第3期 死滅回游",
+    "ep_num": 55,
+    "station": "MBS/TBS系",
+    "status": "normal",
+    "original_vol": null,
+    "youtube_id": "xG68IScifhQ",
+    "amazon_kindle_url": "...",
+    "isNotified": false,
+    "source_links": null
+  }
+]

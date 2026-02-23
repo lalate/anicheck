@@ -96,4 +96,6 @@ flutter:
   # see https://flutter.dev/to/font-from-package
 
   assets:
-    - assets/anime_data.json
+    - assets/Master_data.json
+    - assets/Episode_Content.json
+    - assets/Broadcast_Schedule.json

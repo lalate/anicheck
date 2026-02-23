@@ -156,6 +156,95 @@ class NotificationService {
   }
 }
 
+// --- 新しいデータモデル定義 ---
+
+class AnimeMaster {
+  final String animeId;
+  final String title;
+  final String officialUrl;
+  final String hashtag;
+  final String stationMaster;
+  final String? baseOpYoutubeId;
+  final Map<String, dynamic> sources;
+
+  AnimeMaster({
+    required this.animeId,
+    required this.title,
+    required this.officialUrl,
+    required this.hashtag,
+    required this.stationMaster,
+    this.baseOpYoutubeId,
+    required this.sources,
+  });
+
+  factory AnimeMaster.fromJson(Map<String, dynamic> json) {
+    return AnimeMaster(
+      animeId: json['anime_id'] ?? '',
+      title: json['title'] ?? '',
+      officialUrl: json['official_url'] ?? '',
+      hashtag: json['hashtag'] ?? '',
+      stationMaster: json['station_master'] ?? '',
+      baseOpYoutubeId: json['base_op_youtube_id'],
+      sources: json['sources'] ?? {},
+    );
+  }
+}
+
+class AnimeEpisode {
+  final String animeId;
+  final int epNum;
+  final String title;
+  final String prevSummary;
+  final String? nextPreviewYoutubeId;
+  final int? originalVol;
+
+  AnimeEpisode({
+    required this.animeId,
+    required this.epNum,
+    required this.title,
+    required this.prevSummary,
+    this.nextPreviewYoutubeId,
+    this.originalVol,
+  });
+
+  factory AnimeEpisode.fromJson(Map<String, dynamic> json) {
+    return AnimeEpisode(
+      animeId: json['anime_id'] ?? '',
+      epNum: json['ep_num'] ?? 0,
+      title: json['title'] ?? '',
+      prevSummary: json['prev_summary'] ?? '',
+      nextPreviewYoutubeId: json['next_preview_youtube_id'],
+      originalVol: json['original_vol'],
+    );
+  }
+}
+
+class AnimeSchedule {
+  final String animeId;
+  final int epNum;
+  final String stationId;
+  final DateTime startTime;
+  final String status;
+
+  AnimeSchedule({
+    required this.animeId,
+    required this.epNum,
+    required this.stationId,
+    required this.startTime,
+    required this.status,
+  });
+
+  factory AnimeSchedule.fromJson(Map<String, dynamic> json) {
+    return AnimeSchedule(
+      animeId: json['anime_id'] ?? '',
+      epNum: json['ep_num'] ?? 0,
+      stationId: json['station_id'] ?? '',
+      startTime: DateTime.parse(json['start_time']),
+      status: json['status'] ?? '',
+    );
+  }
+}
+
 class SourceLinks {
   final String? webNovel;
   final String? lightNovelAmazon;
@@ -177,6 +266,7 @@ class SourceLinks {
 }
 
 class Anime {
+  final String id;
   final String time;
   final String title;
   final int? epNum;
@@ -187,8 +277,10 @@ class Anime {
   final String? amazonKindleUrl;
   bool isNotified;
   final SourceLinks? sourceLinks;
+  final String? summary;
 
   Anime({
+    required this.id,
     required this.time,
     required this.title,
     this.epNum,
@@ -199,10 +291,12 @@ class Anime {
     this.amazonKindleUrl,
     required this.isNotified,
     this.sourceLinks,
+    this.summary,
   });
 
   factory Anime.fromJson(Map<String, dynamic> json) {
     return Anime(
+      id: json['anime_id'] ?? '',
       time: json['time'],
       title: json['title'],
       epNum: json['ep_num'],
@@ -213,6 +307,7 @@ class Anime {
       amazonKindleUrl: json['amazon_kindle_url'],
       isNotified: json['isNotified'] ?? false,
       sourceLinks: json['source_links'] != null ? SourceLinks.fromJson(json['source_links']) : null,
+      summary: json['summary'],
     );
   }
 }
@@ -283,26 +378,70 @@ class _MainScreenState extends State<MainScreen> {
 
   // JSONファイルからアニメデータを読み込む
   Future<List<Anime>> _loadAnimeList() async {
-    AppLogger.log('Loading anime list...');
+    AppLogger.log('Loading anime list from 3 sources...');
     try {
       // 読み込み中の表示を確認しやすくするために少し遅延を入れる（本番では不要）
       await Future.delayed(const Duration(seconds: 1));
-      final String jsonString = await rootBundle.loadString('assets/anime_data.json');
-      AppLogger.log('JSON content: $jsonString');
-      final List<dynamic> jsonList = json.decode(jsonString);
-      final list = jsonList.map((json) => Anime.fromJson(json)).toList();
 
-      // 保存された通知設定を読み込む
-      final prefs = await SharedPreferences.getInstance();
-      for (var anime in list) {
-        final key = 'notify_${anime.title}';
-        if (prefs.containsKey(key)) {
-          anime.isNotified = prefs.getBool(key) ?? false;
-        }
+      // JSON読み込みヘルパー（単一オブジェクトの場合もリストとして扱う）
+      Future<List<dynamic>> loadJson(String path) async {
+        final String jsonString = await rootBundle.loadString(path);
+        final decoded = json.decode(jsonString);
+        return decoded is List ? decoded : [decoded];
       }
 
-      AppLogger.log('Loaded ${list.length} items.');
-      return list;
+      final mastersJson = await loadJson('assets/Master_data.json');
+      final episodesJson = await loadJson('assets/Episode_Content.json');
+      final schedulesJson = await loadJson('assets/Broadcast_Schedule.json');
+
+      final masters = mastersJson.map((j) => AnimeMaster.fromJson(j)).toList();
+      final episodes = episodesJson.map((j) => AnimeEpisode.fromJson(j)).toList();
+      final schedules = schedulesJson.map((j) => AnimeSchedule.fromJson(j)).toList();
+
+      // スケジュールをベースにデータを結合
+      final List<Anime> mergedList = [];
+      final prefs = await SharedPreferences.getInstance();
+
+      for (var schedule in schedules) {
+        // Masterデータの検索
+        final master = masters.firstWhere(
+          (m) => m.animeId == schedule.animeId,
+          orElse: () => AnimeMaster(animeId: '', title: 'Unknown', officialUrl: '', hashtag: '', stationMaster: '', sources: {}),
+        );
+
+        // Episodeデータの検索
+        final episode = episodes.firstWhere(
+          (e) => e.animeId == schedule.animeId && e.epNum == schedule.epNum,
+          orElse: () => AnimeEpisode(animeId: '', epNum: 0, title: '', prevSummary: ''),
+        );
+
+        // 時間のフォーマット (HH:mm)
+        final dt = schedule.startTime;
+        final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+
+      // 保存された通知設定を読み込む
+        final notifyKey = 'notify_${master.title}';
+        final isNotified = prefs.getBool(notifyKey) ?? false;
+
+        mergedList.add(Anime(
+          id: schedule.animeId,
+          time: timeStr,
+          title: master.title,
+          epNum: schedule.epNum,
+          station: master.stationMaster, // Masterの放送局名を使用
+          status: schedule.status,
+          originalVol: episode.originalVol,
+          // 次回予告IDがあればそれを、なければMasterのOP動画を使用
+          youtubeId: episode.nextPreviewYoutubeId ?? master.baseOpYoutubeId,
+          amazonKindleUrl: master.sources['manga_amazon'],
+          isNotified: isNotified,
+          sourceLinks: SourceLinks.fromJson(master.sources),
+          summary: episode.prevSummary,
+        ));
+      }
+
+      AppLogger.log('Loaded ${mergedList.length} items from merged data.');
+      return mergedList;
     } catch (e) {
       AppLogger.log('Error loading anime list: $e');
       rethrow;
@@ -771,9 +910,9 @@ END:VCALENDAR
                   ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'ここにアニメの詳細なあらすじが表示されます。現在は開発中のためダミーテキストを表示しています。API連携後は、各エピソードの概要やキャスト情報などがここに反映される予定です。',
-              style: TextStyle(height: 1.6, color: Colors.black87),
+            Text(
+              widget.anime.summary ?? 'あらすじ情報がありません。',
+              style: const TextStyle(height: 1.6, color: Colors.black87),
             ),
             const Divider(height: 48),
             Text(

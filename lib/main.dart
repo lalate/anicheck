@@ -5,6 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
 class AppLogger {
   static File? _logFile;
@@ -33,6 +38,7 @@ class AppLogger {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppLogger.init();
+  await NotificationService.init();
 
   // アプリ全体のエラーをログに記録する設定
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -41,6 +47,113 @@ void main() async {
   };
 
   runApp(const AniCheckApp());
+}
+
+class NotificationService {
+  static final FlutterLocalNotificationsPlugin _notificationsPlugin =
+      FlutterLocalNotificationsPlugin();
+
+  static Future<void> init() async {
+    // タイムゾーンデータベースを初期化
+    tz.initializeTimeZones();
+    // デバイスのローカルタイムゾーンを設定
+    final String timeZoneName = tz.local.name;
+    tz.setLocalLocation(tz.getLocation(timeZoneName));
+
+    // Android用の初期化設定
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    // iOS/macOS用の初期化設定（通知許可をリクエスト）
+    const DarwinInitializationSettings initializationSettingsDarwin =
+        DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+
+    const InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsDarwin,
+      macOS: initializationSettingsDarwin,
+    );
+
+    await _notificationsPlugin.initialize(initializationSettings);
+    AppLogger.log('NotificationService initialized.');
+  }
+
+  static Future<void> scheduleNotification(Anime anime) async {
+    final id = anime.title.hashCode;
+    final timeParts = anime.time.split(':');
+    if (timeParts.length != 2) return;
+
+    final hour = int.tryParse(timeParts[0]);
+    final minute = int.tryParse(timeParts[1]);
+    if (hour == null || minute == null) return;
+
+    final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
+    tz.TZDateTime scheduledDate =
+        tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+
+    // もし今日の放送時間が既に過ぎていたら、明日の同じ時間に予約する
+    if (scheduledDate.isBefore(now)) {
+      scheduledDate = scheduledDate.add(const Duration(days: 1));
+    }
+
+    // 放送5分前に設定
+    final notificationTime = scheduledDate.subtract(const Duration(minutes: 5));
+
+    await _notificationsPlugin.zonedSchedule(
+      id,
+      'まもなく放送開始',
+      anime.title,
+      notificationTime,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'anicheck_channel_id',
+          'AniCheck Notifications',
+          channelDescription: 'Notifications for upcoming anime broadcasts',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(sound: 'default'),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+    );
+    AppLogger.log('Scheduled notification for ${anime.title} at $notificationTime');
+  }
+
+  static Future<void> cancelNotification(Anime anime) async {
+    final id = anime.title.hashCode;
+    await _notificationsPlugin.cancel(id);
+    AppLogger.log('Canceled notification for ${anime.title}');
+  }
+
+  // テスト用：30秒後に通知
+  static Future<void> scheduleTestNotification(Anime anime) async {
+    final id = anime.title.hashCode + 1000; // 通常の通知IDと被らないようにする
+    final notificationTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 30));
+
+    await _notificationsPlugin.zonedSchedule(
+      id,
+      'テスト通知',
+      '${anime.title} のテスト通知です',
+      notificationTime,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'anicheck_channel_id',
+          'AniCheck Notifications',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(sound: 'default'),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+    );
+    AppLogger.log('Scheduled TEST notification for ${anime.title} at $notificationTime');
+  }
 }
 
 class SourceLinks {
@@ -178,6 +291,16 @@ class _MainScreenState extends State<MainScreen> {
       AppLogger.log('JSON content: $jsonString');
       final List<dynamic> jsonList = json.decode(jsonString);
       final list = jsonList.map((json) => Anime.fromJson(json)).toList();
+
+      // 保存された通知設定を読み込む
+      final prefs = await SharedPreferences.getInstance();
+      for (var anime in list) {
+        final key = 'notify_${anime.title}';
+        if (prefs.containsKey(key)) {
+          anime.isNotified = prefs.getBool(key) ?? false;
+        }
+      }
+
       AppLogger.log('Loaded ${list.length} items.');
       return list;
     } catch (e) {
@@ -218,6 +341,23 @@ class _MainScreenState extends State<MainScreen> {
     AppLogger.log('Region saved: $region');
     setState(() {
       _region = region;
+    });
+  }
+
+  // 通知設定の保存と状態更新
+  Future<void> _saveNotificationState(Anime anime, bool isNotified) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('notify_${anime.title}', isNotified);
+    AppLogger.log('Saved notification state for ${anime.title}: $isNotified');
+
+    if (isNotified) {
+      await NotificationService.scheduleNotification(anime);
+    } else {
+      await NotificationService.cancelNotification(anime);
+    }
+
+    setState(() {
+      anime.isNotified = isNotified;
     });
   }
 
@@ -321,9 +461,7 @@ class _MainScreenState extends State<MainScreen> {
                           anime: anime, // Pass the Anime object
                           initialIsNotified: isNotified,
                           onToggleNotification: (newValue) {
-                            setState(() {
-                              anime.isNotified = newValue;
-                            });
+                            _saveNotificationState(anime, newValue);
                           },
                         ),
                       ),
@@ -349,10 +487,7 @@ class _MainScreenState extends State<MainScreen> {
                     ),
                     onPressed: () {
                       final newState = !isNotified;
-                      AppLogger.log('Toggled notification for ${anime.title} on list: $newState');
-                      setState(() {
-                        anime.isNotified = newState;
-                      });
+                      _saveNotificationState(anime, newState);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
@@ -428,6 +563,90 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen> {
     }
   }
 
+  Future<void> _addToCalendar(BuildContext context) async {
+    AppLogger.log('Attempting to add event to calendar...');
+    // 1. 放送日時を計算
+    final timeParts = widget.anime.time.split(':');
+    if (timeParts.length != 2) return;
+    final hour = int.tryParse(timeParts[0]);
+    final minute = int.tryParse(timeParts[1]);
+    if (hour == null || minute == null) return;
+
+    final now = DateTime.now();
+    DateTime startTime = DateTime(now.year, now.month, now.day, hour, minute);
+    // もし今日の放送時間が既に過ぎていたら、明日の同じ時間に設定
+    if (startTime.isBefore(now)) {
+      startTime = startTime.add(const Duration(days: 1));
+    }
+    // 放送時間は30分と仮定
+    final endTime = startTime.add(const Duration(minutes: 30));
+
+    // iCalendar形式の日時文字列に変換 (例: 20260223T140000Z)
+    String toIcalFormat(DateTime dt) {
+      return dt.toUtc().toIso8601String().replaceAll(RegExp(r'[-:.]'), '').substring(0, 15) + 'Z';
+    }
+
+    // 2. UIDを生成 (タイトルとエピソード番号でユニークに)
+    final uniquePart = widget.anime.epNum?.toString() ?? startTime.toIso8601String().substring(0, 10);
+    final uid = '${widget.anime.title}-$uniquePart@anicheck.app';
+
+    // 3. iCalendar (.ics) ファイルの内容を生成
+    final icsContent = """
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//AniCheckApp//EN
+BEGIN:VEVENT
+UID:$uid
+DTSTAMP:${toIcalFormat(DateTime.now())}
+DTSTART:${toIcalFormat(startTime)}
+DTEND:${toIcalFormat(endTime)}
+SUMMARY:【放送】${widget.anime.title}
+DESCRIPTION:アニメ「${widget.anime.title}」の放送時間です。
+BEGIN:VALARM
+TRIGGER:-PT5M
+ACTION:DISPLAY
+DESCRIPTION:まもなく放送開始: ${widget.anime.title}
+END:VALARM
+END:VEVENT
+END:VCALENDAR
+""";
+
+    // 4. 一時ファイルに保存して共有インテントを開く
+    try {
+      final directory = await getTemporaryDirectory();
+      final filePath = '${directory.path}/anicheck_event.ics';
+      final file = File(filePath);
+      await file.writeAsString(icsContent);
+      AppLogger.log('Generated iCal file at $filePath');
+
+      final box = context.findRenderObject() as RenderBox?;
+      final sharePositionOrigin = box!.localToGlobal(Offset.zero) & box.size;
+
+      await Share.shareXFiles(
+        [XFile(filePath, mimeType: 'text/calendar')],
+        text: 'カレンダーに予定を追加',
+        sharePositionOrigin: sharePositionOrigin,
+      );
+    } catch (e) {
+      AppLogger.log('Error creating or sharing iCal file: $e');
+    }
+  }
+
+  void _shareOnX() {
+    final animeTitle = widget.anime.title;
+    final text = '「$animeTitle」を今見てる！ #アニちぇっく';
+    // ハッシュタグ用にタイトルから空白や記号を削除
+    final hashtag = animeTitle.replaceAll(RegExp(r"[\s/:!?'.,]"), '');
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true, // キーボード表示時にUIが隠れないようにする
+      builder: (context) {
+        return ComposeXPostSheet(initialText: text, hashtag: hashtag);
+      },
+    );
+  }
+
   // Amazon URLにアフィリエイトタグを付与する関数
   String _buildAmazonUrl(String url) {
     // TODO: ここにあなたのアフィリエイトIDを設定してください
@@ -449,6 +668,20 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen> {
       appBar: AppBar(
         title: const Text('番組詳細', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.share_outlined),
+            onPressed: _shareOnX,
+          ),
+          IconButton(
+            icon: const Icon(Icons.hourglass_bottom),
+            tooltip: '30秒後にテスト通知',
+            onPressed: () {
+              NotificationService.scheduleTestNotification(widget.anime);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('30秒後にテスト通知を予約しました')),
+              );
+            },
+          ),
           IconButton(
             icon: Icon(_isNotified ? Icons.notifications : Icons.notifications_none),
             color: _isNotified ? Colors.orange : Colors.grey,
@@ -542,6 +775,21 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen> {
               'ここにアニメの詳細なあらすじが表示されます。現在は開発中のためダミーテキストを表示しています。API連携後は、各エピソードの概要やキャスト情報などがここに反映される予定です。',
               style: TextStyle(height: 1.6, color: Colors.black87),
             ),
+            const Divider(height: 48),
+            Text(
+              '関連ポスト',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 400,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12.0),
+                child: HashtagWebView(hashtag: widget.anime.title),
+              ),
+            ),
             const SizedBox(height: 32),
             // Conditionally display the "Read Original" button
             if (widget.anime.originalVol != null && widget.anime.sourceLinks?.mangaAmazon != null)
@@ -569,8 +817,157 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen> {
                 label: const Text('公式サイトを見る'),
               ),
             ),
+            const SizedBox(height: 8),
+            Center(
+              child: Builder(
+                builder: (BuildContext buttonContext) {
+                  return OutlinedButton.icon(
+                    onPressed: () => _addToCalendar(buttonContext),
+                    icon: const Icon(Icons.calendar_month_outlined),
+                    label: const Text('カレンダーに追加'),
+                  );
+                },
+              ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class HashtagWebView extends StatefulWidget {
+  final String hashtag;
+
+  const HashtagWebView({super.key, required this.hashtag});
+
+  @override
+  State<HashtagWebView> createState() => _HashtagWebViewState();
+}
+
+class _HashtagWebViewState extends State<HashtagWebView> {
+  late final WebViewController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final cleanHashtag = widget.hashtag.replaceAll(RegExp(r"[\s/:!?'.,]"), '');
+    final url = 'https://twitter.com/hashtag/$cleanHashtag';
+
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      // Set a desktop-like user agent to avoid app-opening redirects
+      ..setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36')
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onProgress: (int progress) {
+            AppLogger.log('WebView loading: $progress%');
+          },
+          onPageStarted: (String url) {},
+          onPageFinished: (String url) {},
+          onWebResourceError: (WebResourceError error) {
+            AppLogger.log('WebView error: ${error.description}');
+          },
+          onNavigationRequest: (NavigationRequest request) {
+            if (!request.url.startsWith('http')) {
+              AppLogger.log('Blocked navigation to: ${request.url}');
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(url));
+
+    // setBackgroundColor is not supported on macOS, so we only call it on other platforms.
+    if (!Platform.isMacOS) {
+      _controller.setBackgroundColor(const Color(0x00000000));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WebViewWidget(controller: _controller);
+  }
+}
+
+class ComposeXPostSheet extends StatefulWidget {
+  final String initialText;
+  final String hashtag;
+
+  const ComposeXPostSheet({
+    super.key,
+    required this.initialText,
+    required this.hashtag,
+  });
+
+  @override
+  State<ComposeXPostSheet> createState() => _ComposeXPostSheetState();
+}
+
+class _ComposeXPostSheetState extends State<ComposeXPostSheet> {
+  late final TextEditingController _textController;
+  final int _maxLength = 280; // X's character limit
+
+  @override
+  void initState() {
+    super.initState();
+    _textController = TextEditingController(text: widget.initialText);
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  void _postToX() {
+    final text = _textController.text;
+    final url = 'https://twitter.com/intent/tweet'
+        '?text=${Uri.encodeComponent(text)}'
+        '&hashtags=${Uri.encodeComponent(widget.hashtag)}';
+
+    AppLogger.log('Sharing on X from sheet: $url');
+    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    Navigator.of(context).pop(); // ボトムシートを閉じる
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // キーボードの高さに合わせてUIを上に持ち上げる
+    final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
+
+    return Padding(
+      padding: EdgeInsets.only(top: 20, left: 20, right: 20, bottom: bottomPadding + 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Xで共有', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _textController,
+            autofocus: true,
+            maxLines: 5,
+            maxLength: _maxLength,
+            decoration: const InputDecoration(
+              hintText: '今なにしてる？',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (text) => setState(() {}), // 文字数カウンターを更新
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ElevatedButton(
+              onPressed: _textController.text.isEmpty ? null : _postToX,
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).primaryColor, foregroundColor: Colors.white),
+              child: const Text('ポストする'),
+            ),
+          )
+        ],
       ),
     );
   }

@@ -236,12 +236,58 @@ class AnimeSchedule {
   });
 
   factory AnimeSchedule.fromJson(Map<String, dynamic> json) {
+    DateTime parsedTime;
+    final timeString = json['start_time'];
+    try {
+      if (timeString == null || timeString.toString().isEmpty) {
+        throw const FormatException('start_time is null or empty');
+      }
+      
+      // AIがよくやる "24:xx" 表記を "00:xx" の翌日に直す簡易補正（必要なら）
+      // 標準のDateTime.parseは "24:00:00" で落ちることがある
+      String safeTimeString = timeString.toString();
+      if (safeTimeString.contains('T24:')) {
+        safeTimeString = safeTimeString.replaceFirst('T24:', 'T00:');
+        // 本当は日付も1日進めるべきだが、パース落ち回避を優先
+      } else if (safeTimeString.contains('T25:')) {
+        safeTimeString = safeTimeString.replaceFirst('T25:', 'T01:');
+      } else if (safeTimeString.contains('T26:')) {
+        safeTimeString = safeTimeString.replaceFirst('T26:', 'T02:');
+      }
+      
+      parsedTime = DateTime.parse(safeTimeString);
+    } catch (e) {
+      AppLogger.log('⚠️ [Warning] Failed to parse start_time for anime_id: ${json['anime_id']}. Value was: "$timeString". Error: $e');
+      // パース失敗時はアプリがクラッシュしないよう、現在時刻を入れる（または1970年など）
+      parsedTime = DateTime.now(); 
+    }
+
     return AnimeSchedule(
       animeId: json['anime_id'] ?? '',
       epNum: json['ep_num'] ?? 0,
       stationId: json['station_id'] ?? '',
-      startTime: DateTime.parse(json['start_time']),
+      startTime: parsedTime,
       status: json['status'] ?? '',
+    );
+  }
+}
+
+class AnimeGoods {
+  final String type;
+  final String name;
+  final String url;
+
+  AnimeGoods({
+    required this.type,
+    required this.name,
+    required this.url,
+  });
+
+  factory AnimeGoods.fromJson(Map<String, dynamic> json) {
+    return AnimeGoods(
+      type: json['type'] ?? '',
+      name: json['name'] ?? '',
+      url: json['url'] ?? '',
     );
   }
 }
@@ -250,11 +296,13 @@ class SourceLinks {
   final String? webNovel;
   final String? lightNovelAmazon;
   final String? mangaAmazon;
+  final List<AnimeGoods>? goods;
 
   SourceLinks({
     this.webNovel,
     this.lightNovelAmazon,
     this.mangaAmazon,
+    this.goods,
   });
 
   factory SourceLinks.fromJson(Map<String, dynamic> json) {
@@ -262,6 +310,7 @@ class SourceLinks {
       webNovel: json['web_novel'],
       lightNovelAmazon: json['light_novel_amazon'],
       mangaAmazon: json['manga_amazon'],
+      goods: (json['goods'] as List?)?.map((i) => AnimeGoods.fromJson(i)).toList(),
     );
   }
 }
@@ -979,12 +1028,55 @@ END:VCALENDAR
     );
   }
 
+  IconData _getIconForGoodsType(String type) {
+    type = type.toLowerCase();
+    if (type.contains('blu-ray') || type.contains('dvd') || type.contains('円盤')) {
+      return Icons.album_outlined;
+    } else if (type.contains('figure') || type.contains('フィギュア')) {
+      return Icons.accessibility_new_outlined;
+    } else if (type.contains('book') || type.contains('本') || type.contains('コミック')) {
+      return Icons.menu_book_outlined;
+    } else if (type.contains('music') || type.contains('cd') || type.contains('音楽')) {
+      return Icons.music_note_outlined;
+    }
+    return Icons.shopping_bag_outlined;
+  }
+
+  // セクションを生成するヘルパー
+  Widget _buildSection(BuildContext context, {required String title, required Widget child}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+        const SizedBox(height: 12),
+        child,
+        const Divider(height: 48),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('番組詳細', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 220.0,
+            pinned: true,
+            flexibleSpace: FlexibleSpaceBar(
+              title: Text(
+                widget.anime.title,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+              background: _buildYoutubeThumbnail(context, widget.anime.previewYoutubeId ?? widget.anime.opYoutubeId ?? '', 'ヘッダー'),
+            ),
+            actions: [
           IconButton(
             icon: const Icon(Icons.share_outlined),
             onPressed: _shareOnX,
@@ -1081,7 +1173,7 @@ END:VCALENDAR
             // Conditionally display the "Read Original" button
             if (widget.anime.originalVol != null && widget.anime.sourceLinks?.mangaAmazon != null)
               Padding(
-                padding: const EdgeInsets.only(bottom: 8.0),
+                padding: const EdgeInsets.only(bottom: 16.0),
                 child: Center(
                   child: ElevatedButton.icon(
                     onPressed: () {
@@ -1097,14 +1189,49 @@ END:VCALENDAR
                   ),
                 ),
               ),
+            // グッズ情報の表示
+            if (widget.anime.sourceLinks?.goods != null && widget.anime.sourceLinks!.goods!.isNotEmpty) ...[
+              Text(
+                '関連グッズ・円盤',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              ...widget.anime.sourceLinks!.goods!.map((item) {
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: Icon(_getIconForGoodsType(item.type)),
+                    title: Text(item.name, style: const TextStyle(fontSize: 14)),
+                    subtitle: Text(item.type, style: const TextStyle(fontSize: 12)),
+                    trailing: const Icon(Icons.open_in_new, size: 18),
+                    onTap: () => _launchURL(context, item.url),
+                  ),
+                );
+              }),
+              const SizedBox(height: 24),
+            ],
             Center(
               child: ElevatedButton.icon(
-                onPressed: () => _launchURL(context, "https://flutter.dev"), // Placeholder URL
+                onPressed: () => _launchURL(context, widget.anime.sourceLinks?.goods?.firstOrNull?.url ?? "https://flutter.dev"), // Placeholder
                 icon: const Icon(Icons.public),
                 label: const Text('公式サイトを見る'),
               ),
             ),
             const SizedBox(height: 8),
+            Center(
+              child: TextButton.icon(
+                onPressed: () {
+                  final githubUrl = 'https://github.com/lalate/anicheck-data/edit/master/current/${widget.anime.id}_master.json';
+                  _launchURL(context, githubUrl);
+                },
+                icon: const Icon(Icons.edit_note, size: 18),
+                label: const Text('番組データを修正する (GitHub)', style: TextStyle(fontSize: 12)),
+                style: TextButton.styleFrom(foregroundColor: Colors.grey),
+              ),
+            ),
+            const SizedBox(height: 32),
             Center(
               child: Builder(
                 builder: (BuildContext buttonContext) {

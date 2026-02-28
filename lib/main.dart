@@ -361,26 +361,92 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  String? _region;
+  List<String> _selectedStations = [];
   bool _isLoading = true;
   late Future<List<Anime>> _animeListFuture;
 
-  final List<String> _prefectures = [
-    '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
-    '東京都', '神奈川県', '埼玉県', '千葉県', '茨城県', '栃木県', '群馬県',
-    '山梨県', '新潟県', '長野県', '富山県', '石川県', '福井県',
-    '愛知県', '岐阜県', '静岡県', '三重県',
-    '大阪府', '兵庫県', '京都府', '滋賀県', '奈良県', '和歌山県',
-    '鳥取県', '島根県', '岡山県', '広島県', '山口県',
-    '徳島県', '香川県', '愛媛県', '高知県',
-    '福岡県', '佐賀県', '長崎県', '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県'
-  ];
+  // 放送局のプリセット定義
+  final Map<String, List<String>> _stationPresets = {
+    '関東広域圏 (TOKYO MX中心)': ['mx', 'tx', 'ntv', 'tbs', 'fujitv', 'tv_asahi'],
+    '関西広域圏 (MBS中心)': ['mbs', 'ytv', 'ktv', 'abc', 'sun', 'tv_osaka'],
+    '中京広域圏 (メ〜テレ中心)': ['tva', 'nagoya_tv', 'cbc', 'tokai_tv', 'ctv'],
+    'BS / 全国ネット中心': ['bs11', 'bs_fuji', 'bs_tbs', 'bs_ntv', 'nhk'],
+    'ネット配信最速 (Abema等)': ['abema', 'prime_video', 'netflix', 'u_next'],
+  };
+
+  // アプリで扱うすべての放送局ID（手動カスタマイズ用）
+  final Map<String, String> _allAvailableStations = {
+    'mx': 'TOKYO MX',
+    'tx': 'テレビ東京',
+    'ntv': '日本テレビ',
+    'tbs': 'TBS',
+    'fujitv': 'フジテレビ',
+    'tv_asahi': 'テレビ朝日',
+    'mbs': 'MBS',
+    'ytv': '読売テレビ',
+    'ktv': '関西テレビ',
+    'abc': 'ABCテレビ',
+    'sun': 'サンテレビ',
+    'tv_osaka': 'テレビ大阪',
+    'tva': 'テレビ愛知',
+    'nagoya_tv': 'メ〜テレ',
+    'cbc': 'CBC',
+    'tokai_tv': '東海テレビ',
+    'ctv': '中京テレビ',
+    'bs11': 'BS11',
+    'bs_fuji': 'BSフジ',
+    'bs_tbs': 'BS-TBS',
+    'bs_ntv': 'BS日テレ',
+    'nhk': 'NHK',
+    'abema': 'AbemaTV',
+    'prime_video': 'Prime Video',
+    'netflix': 'Netflix',
+    'u_next': 'U-NEXT',
+    'tokyomx': 'TOKYO MX', // 表記ゆれ対応
+  };
 
   @override
   void initState() {
     super.initState();
-    _loadRegion();
+    _loadStationFilter();
     _animeListFuture = _loadAnimeList();
+  }
+
+  // 設定の読み込み
+  Future<void> _loadStationFilter() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {
+        _selectedStations = prefs.getStringList('selected_stations') ?? [];
+        _isLoading = false;
+      });
+
+      // 初回起動時はダイアログを表示
+      if (_selectedStations.isEmpty && mounted) {
+        _showFilterDialog();
+      }
+      AppLogger.log('Stations loaded: ${_selectedStations.length} stations');
+    } catch (e) {
+      AppLogger.log('初期化エラー: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // 設定の保存とリストの再読み込み
+  Future<void> _saveStationFilter(List<String> stations) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('selected_stations', stations);
+    AppLogger.log('Stations saved: ${stations.length} stations');
+    setState(() {
+      _selectedStations = stations;
+      // フィルターが変わったのでリストを再読み込み
+      _animeListFuture = _loadAnimeList();
+    });
   }
 
   // JSONファイルからアニメデータを読み込む
@@ -442,22 +508,26 @@ class _MainScreenState extends State<MainScreen> {
           final notifyKey = 'notify_${master.title}';
           final isNotified = prefs.getBool(notifyKey) ?? false;
 
-          mergedList.add(Anime(
-            id: schedule.animeId,
-            time: timeStr,
-            title: master.title,
-            epNum: schedule.epNum,
-            episodeTitle: episode.title,
-            station: master.stationMaster, // Masterの放送局名を使用
-            status: schedule.status,
-            originalVol: episode.originalVol,
-            previewYoutubeId: episode.nextPreviewYoutubeId,
-            opYoutubeId: master.baseOpYoutubeId,
-            amazonKindleUrl: master.sources['manga_amazon'],
-            isNotified: isNotified,
-            sourceLinks: SourceLinks.fromJson(master.sources),
-            summary: episode.prevSummary,
-          ));
+          // 放送局が選択リストに含まれているかチェック (空の場合はすべて表示)
+          final stationLower = schedule.stationId.toLowerCase();
+          if (_selectedStations.isEmpty || _selectedStations.contains(stationLower)) {
+            mergedList.add(Anime(
+              id: schedule.animeId,
+              time: timeStr,
+              title: master.title,
+              epNum: schedule.epNum,
+              episodeTitle: episode.title,
+              station: master.stationMaster, // Masterの放送局名を使用
+              status: schedule.status,
+              originalVol: episode.originalVol,
+              previewYoutubeId: episode.nextPreviewYoutubeId,
+              opYoutubeId: master.baseOpYoutubeId,
+              amazonKindleUrl: master.sources['manga_amazon'],
+              isNotified: isNotified,
+              sourceLinks: SourceLinks.fromJson(master.sources),
+              summary: episode.prevSummary,
+            ));
+          }
         } catch (e) {
           AppLogger.log('Error processing anime ${schedule.animeId}: $e');
         }
@@ -466,47 +536,12 @@ class _MainScreenState extends State<MainScreen> {
       // 放送時間順にソート
       mergedList.sort((a, b) => a.time.compareTo(b.time));
 
-      AppLogger.log('Loaded ${mergedList.length} items from GitHub data.');
+      AppLogger.log('Loaded ${mergedList.length} items from GitHub data (Filtered).');
       return mergedList;
     } catch (e) {
       AppLogger.log('Error loading anime list: $e');
       rethrow;
     }
-  }
-
-  // 地域設定の読み込み
-  Future<void> _loadRegion() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (!mounted) return;
-      setState(() {
-        _region = prefs.getString('region');
-        _isLoading = false;
-      });
-
-      // 初回起動時（地域未設定）はダイアログを表示
-      if (_region == null && mounted) {
-        _showRegionDialog();
-      }
-      AppLogger.log('Region loaded: $_region');
-    } catch (e) {
-      AppLogger.log('初期化エラー: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  // 地域設定の保存
-  Future<void> _saveRegion(String region) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('region', region);
-    AppLogger.log('Region saved: $region');
-    setState(() {
-      _region = region;
-    });
   }
 
   // 通知設定の保存と状態更新
@@ -526,29 +561,91 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
-  void _showRegionDialog() {
-    showDialog(
+  void _showFilterDialog() {
+    List<String> tempSelected = List.from(_selectedStations);
+
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: false, // 選択するまで閉じられないようにする
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('お住まいの地域を選択'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: _prefectures.length,
-              itemBuilder: (context, index) {
-                return ListTile(
-                  title: Text(_prefectures[index]),
-                  onTap: () {
-                    _saveRegion(_prefectures[index]);
-                    Navigator.of(context).pop();
-                  },
+      isScrollControlled: true,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.9,
+              minChildSize: 0.5,
+              maxChildSize: 0.9,
+              expand: false,
+              builder: (_, controller) {
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('視聴環境のカスタマイズ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          TextButton(
+                            onPressed: () {
+                              _saveStationFilter(tempSelected);
+                              Navigator.pop(context);
+                            },
+                            child: const Text('完了'),
+                          )
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        controller: controller,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                            child: Text('プリセットから選ぶ', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                          ),
+                          ..._stationPresets.entries.map((entry) {
+                            return ListTile(
+                              title: Text(entry.key),
+                              trailing: OutlinedButton(
+                                onPressed: () {
+                                  setModalState(() {
+                                    // 既存の選択をクリアしてプリセットで上書きするか、追加するか
+                                    // ここでは分かりやすさのため上書きにする
+                                    tempSelected = List.from(entry.value);
+                                  });
+                                },
+                                child: const Text('適用'),
+                              ),
+                            );
+                          }).toList(),
+                          const Divider(),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                            child: Text('個別にカスタマイズ', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                          ),
+                          ..._allAvailableStations.entries.map((entry) {
+                            final isSelected = tempSelected.contains(entry.key);
+                            return CheckboxListTile(
+                              title: Text(entry.value),
+                              value: isSelected,
+                              onChanged: (bool? value) {
+                                setModalState(() {
+                                  if (value == true) {
+                                    tempSelected.add(entry.key);
+                                  } else {
+                                    tempSelected.remove(entry.key);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ],
+                      ),
+                    ),
+                  ],
                 );
               },
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -569,18 +666,17 @@ class _MainScreenState extends State<MainScreen> {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
-          if (_region != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 16.0),
-              child: TextButton.icon(
-                onPressed: _showRegionDialog,
-                icon: const Icon(Icons.location_on, size: 18),
-                label: Text(_region!),
-                style: TextButton.styleFrom(
-                  foregroundColor: Theme.of(context).primaryColor,
-                ),
+          Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: TextButton.icon(
+              onPressed: _showFilterDialog,
+              icon: const Icon(Icons.tune, size: 18),
+              label: Text(_selectedStations.isEmpty ? 'すべて表示' : '${_selectedStations.length}局選択中'),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).primaryColor,
               ),
             ),
+          ),
         ],
       ),
       body: Column(

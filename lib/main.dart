@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -270,10 +271,12 @@ class Anime {
   final String time;
   final String title;
   final int? epNum;
+  final String? episodeTitle;
   final String station;
   final String? status;
   final int? originalVol;
-  final String? youtubeId;
+  final String? previewYoutubeId;
+  final String? opYoutubeId;
   final String? amazonKindleUrl;
   bool isNotified;
   final SourceLinks? sourceLinks;
@@ -284,10 +287,12 @@ class Anime {
     required this.time,
     required this.title,
     this.epNum,
+    this.episodeTitle,
     required this.station,
     this.status,
     this.originalVol,
-    this.youtubeId,
+    this.previewYoutubeId,
+    this.opYoutubeId,
     this.amazonKindleUrl,
     required this.isNotified,
     this.sourceLinks,
@@ -300,10 +305,12 @@ class Anime {
       time: json['time'],
       title: json['title'],
       epNum: json['ep_num'],
+      episodeTitle: json['episode_title'],
       station: json['station'],
       status: json['status'],
       originalVol: json['original_vol'],
-      youtubeId: json['youtube_id'],
+      previewYoutubeId: json['preview_youtube_id'],
+      opYoutubeId: json['op_youtube_id'],
       amazonKindleUrl: json['amazon_kindle_url'],
       isNotified: json['isNotified'] ?? false,
       sourceLinks: json['source_links'] != null ? SourceLinks.fromJson(json['source_links']) : null,
@@ -383,64 +390,83 @@ class _MainScreenState extends State<MainScreen> {
       // 読み込み中の表示を確認しやすくするために少し遅延を入れる（本番では不要）
       await Future.delayed(const Duration(seconds: 1));
 
-      // JSON読み込みヘルパー（単一オブジェクトの場合もリストとして扱う）
-      Future<List<dynamic>> loadJson(String path) async {
-        final String jsonString = await rootBundle.loadString(path);
-        final decoded = json.decode(jsonString);
-        return decoded is List ? decoded : [decoded];
+      // GitHubの生データURL
+      const baseUrl = 'https://raw.githubusercontent.com/lalate/anicheck-data/master/current';
+      
+      // daily_schedule.jsonを取得
+      final scheduleResponse = await http.get(Uri.parse('$baseUrl/daily_schedule.json'));
+      if (scheduleResponse.statusCode != 200) {
+        throw Exception('Failed to load daily_schedule.json: ${scheduleResponse.statusCode}');
       }
-
-      final mastersJson = await loadJson('assets/Master_data.json');
-      final episodesJson = await loadJson('assets/Episode_Content.json');
-      final schedulesJson = await loadJson('assets/Broadcast_Schedule.json');
-
-      final masters = mastersJson.map((j) => AnimeMaster.fromJson(j)).toList();
-      final episodes = episodesJson.map((j) => AnimeEpisode.fromJson(j)).toList();
+      
+      // UTF-8でデコードしてパース
+      final String scheduleJsonString = utf8.decode(scheduleResponse.bodyBytes);
+      final List<dynamic> schedulesJson = json.decode(scheduleJsonString);
       final schedules = schedulesJson.map((j) => AnimeSchedule.fromJson(j)).toList();
 
-      // スケジュールをベースにデータを結合
       final List<Anime> mergedList = [];
       final prefs = await SharedPreferences.getInstance();
 
-      for (var schedule in schedules) {
-        // Masterデータの検索
-        final master = masters.firstWhere(
-          (m) => m.animeId == schedule.animeId,
-          orElse: () => AnimeMaster(animeId: '', title: 'Unknown', officialUrl: '', hashtag: '', stationMaster: '', sources: {}),
-        );
+      // 各アニメの詳細情報を並行して取得
+      await Future.wait(schedules.map((schedule) async {
+        try {
+          // MasterデータとEpisodeデータを同時に取得
+          final masterResFuture = http.get(Uri.parse('$baseUrl/${schedule.animeId}_master.json'));
+          final episodeResFuture = http.get(Uri.parse('$baseUrl/${schedule.animeId}_episode.json'));
 
-        // Episodeデータの検索
-        final episode = episodes.firstWhere(
-          (e) => e.animeId == schedule.animeId && e.epNum == schedule.epNum,
-          orElse: () => AnimeEpisode(animeId: '', epNum: 0, title: '', prevSummary: ''),
-        );
+          final responses = await Future.wait([masterResFuture, episodeResFuture]);
+          final masterRes = responses[0];
+          final episodeRes = responses[1];
 
-        // 時間のフォーマット (HH:mm)
-        final dt = schedule.startTime;
-        final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+          AnimeMaster master;
+          if (masterRes.statusCode == 200) {
+            final decoded = json.decode(utf8.decode(masterRes.bodyBytes));
+            master = AnimeMaster.fromJson(decoded);
+          } else {
+            master = AnimeMaster(animeId: schedule.animeId, title: 'Unknown', officialUrl: '', hashtag: '', stationMaster: '', sources: {});
+          }
 
-      // 保存された通知設定を読み込む
-        final notifyKey = 'notify_${master.title}';
-        final isNotified = prefs.getBool(notifyKey) ?? false;
+          AnimeEpisode episode;
+          if (episodeRes.statusCode == 200) {
+            final decoded = json.decode(utf8.decode(episodeRes.bodyBytes));
+            episode = AnimeEpisode.fromJson(decoded);
+          } else {
+            episode = AnimeEpisode(animeId: schedule.animeId, epNum: schedule.epNum, title: '', prevSummary: '');
+          }
 
-        mergedList.add(Anime(
-          id: schedule.animeId,
-          time: timeStr,
-          title: master.title,
-          epNum: schedule.epNum,
-          station: master.stationMaster, // Masterの放送局名を使用
-          status: schedule.status,
-          originalVol: episode.originalVol,
-          // 次回予告IDがあればそれを、なければMasterのOP動画を使用
-          youtubeId: episode.nextPreviewYoutubeId ?? master.baseOpYoutubeId,
-          amazonKindleUrl: master.sources['manga_amazon'],
-          isNotified: isNotified,
-          sourceLinks: SourceLinks.fromJson(master.sources),
-          summary: episode.prevSummary,
-        ));
-      }
+          // 時間のフォーマット (HH:mm)
+          final dt = schedule.startTime;
+          final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
-      AppLogger.log('Loaded ${mergedList.length} items from merged data.');
+          // 保存された通知設定を読み込む
+          final notifyKey = 'notify_${master.title}';
+          final isNotified = prefs.getBool(notifyKey) ?? false;
+
+          mergedList.add(Anime(
+            id: schedule.animeId,
+            time: timeStr,
+            title: master.title,
+            epNum: schedule.epNum,
+            episodeTitle: episode.title,
+            station: master.stationMaster, // Masterの放送局名を使用
+            status: schedule.status,
+            originalVol: episode.originalVol,
+            previewYoutubeId: episode.nextPreviewYoutubeId,
+            opYoutubeId: master.baseOpYoutubeId,
+            amazonKindleUrl: master.sources['manga_amazon'],
+            isNotified: isNotified,
+            sourceLinks: SourceLinks.fromJson(master.sources),
+            summary: episode.prevSummary,
+          ));
+        } catch (e) {
+          AppLogger.log('Error processing anime ${schedule.animeId}: $e');
+        }
+      }));
+
+      // 放送時間順にソート
+      mergedList.sort((a, b) => a.time.compareTo(b.time));
+
+      AppLogger.log('Loaded ${mergedList.length} items from GitHub data.');
       return mergedList;
     } catch (e) {
       AppLogger.log('Error loading anime list: $e');
@@ -801,6 +827,62 @@ END:VCALENDAR
     }
   }
 
+  Widget _buildYoutubeThumbnail(BuildContext context, String youtubeId, String label) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: () => _launchURL(
+            context,
+            'https://www.youtube.com/watch?v=$youtubeId',
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12.0),
+                child: Image.network(
+                  'https://img.youtube.com/vi/$youtubeId/hqdefault.jpg',
+                  width: double.infinity,
+                  height: 200,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      width: double.infinity,
+                      height: 200,
+                      color: Colors.grey[300],
+                      child: const Center(child: Icon(Icons.broken_image)),
+                    );
+                  },
+                ),
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6),
+                  shape: BoxShape.circle,
+                ),
+                padding: const EdgeInsets.all(12),
+                child: const Icon(
+                  Icons.play_arrow,
+                  color: Colors.white,
+                  size: 32,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -840,6 +922,16 @@ END:VCALENDAR
                     color: Theme.of(context).primaryColor,
                   ),
             ),
+            if (widget.anime.episodeTitle != null && widget.anime.episodeTitle!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Text(
+                  '#${widget.anime.epNum} ${widget.anime.episodeTitle}',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -859,50 +951,8 @@ END:VCALENDAR
               ],
             ),
             const Divider(height: 48),
-            if (widget.anime.youtubeId != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 24.0),
-                child: GestureDetector(
-                  onTap: () => _launchURL(
-                    context,
-                    'https://www.youtube.com/watch?v=${widget.anime.youtubeId}',
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12.0),
-                        child: Image.network(
-                          'https://img.youtube.com/vi/${widget.anime.youtubeId}/hqdefault.jpg',
-                          width: double.infinity,
-                          height: 200,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              width: double.infinity,
-                              height: 200,
-                              color: Colors.grey[300],
-                              child: const Center(child: Icon(Icons.broken_image)),
-                            );
-                          },
-                        ),
-                      ),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
-                          shape: BoxShape.circle,
-                        ),
-                        padding: const EdgeInsets.all(12),
-                        child: const Icon(
-                          Icons.play_arrow,
-                          color: Colors.white,
-                          size: 32,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            if (widget.anime.previewYoutubeId != null)
+              _buildYoutubeThumbnail(context, widget.anime.previewYoutubeId!, '次回予告'),
             Text(
               'あらすじ',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -915,6 +965,8 @@ END:VCALENDAR
               style: const TextStyle(height: 1.6, color: Colors.black87),
             ),
             const Divider(height: 48),
+            if (widget.anime.opYoutubeId != null)
+              _buildYoutubeThumbnail(context, widget.anime.opYoutubeId!, 'オープニング'),
             Text(
               '関連ポスト',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(

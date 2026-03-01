@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -837,6 +838,7 @@ class AnimeDetailScreen extends StatefulWidget {
 
 class _AnimeDetailScreenState extends State<AnimeDetailScreen> {
   late bool _isNotified;
+  SpoilerMode _currentSpoilerMode = SpoilerMode.clean;
 
   @override
   void initState() {
@@ -952,7 +954,7 @@ END:VCALENDAR
       context: context,
       isScrollControlled: true, // キーボード表示時にUIが隠れないようにする
       builder: (context) {
-        return ComposeXPostSheet(initialText: text, hashtag: hashtag);
+        return ComposeXPostSheet(initialText: text, hashtag: hashtag, spoilerMode: _currentSpoilerMode);
       },
     );
   }
@@ -1060,8 +1062,38 @@ END:VCALENDAR
     );
   }
 
+  // SliverAppBar用ヘッダー背景（サムネイル＋グラデーション）
+  Widget _buildHeaderBackground(String youtubeId) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.network(
+          'https://img.youtube.com/vi/$youtubeId/hqdefault.jpg',
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) =>
+              Container(color: Colors.grey[800]),
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.transparent,
+                Colors.black.withOpacity(0.7),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final headerYoutubeId =
+        widget.anime.previewYoutubeId ?? widget.anime.opYoutubeId ?? '';
+
     return Scaffold(
       body: CustomScrollView(
         slivers: [
@@ -1074,186 +1106,235 @@ END:VCALENDAR
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 overflow: TextOverflow.ellipsis,
               ),
-              background: _buildYoutubeThumbnail(context, widget.anime.previewYoutubeId ?? widget.anime.opYoutubeId ?? '', 'ヘッダー'),
+              background: headerYoutubeId.isNotEmpty
+                  ? _buildHeaderBackground(headerYoutubeId)
+                  : null,
             ),
             actions: [
-          IconButton(
-            icon: const Icon(Icons.share_outlined),
-            onPressed: _shareOnX,
-          ),
-          IconButton(
-            icon: const Icon(Icons.hourglass_bottom),
-            tooltip: '30秒後にテスト通知',
-            onPressed: () {
-              NotificationService.scheduleTestNotification(widget.anime);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('30秒後にテスト通知を予約しました')),
-              );
-            },
-          ),
-          IconButton(
-            icon: Icon(_isNotified ? Icons.notifications : Icons.notifications_none),
-            color: _isNotified ? Colors.orange : Colors.grey,
-            onPressed: _toggleNotification,
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.anime.title,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).primaryColor,
-                  ),
-            ),
-            if (widget.anime.episodeTitle != null && widget.anime.episodeTitle!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4.0),
-                child: Text(
-                  '#${widget.anime.epNum} ${widget.anime.episodeTitle}',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
+              IconButton(
+                icon: const Icon(Icons.share_outlined),
+                onPressed: _shareOnX,
               ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Icon(Icons.tv, size: 20, color: Colors.black54),
-                const SizedBox(width: 8),
-                Text(
-                  widget.anime.station,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(width: 24),
-                const Icon(Icons.access_time, size: 20, color: Colors.black54),
-                const SizedBox(width: 8),
-                Text(
-                  widget.anime.time,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ],
-            ),
-            const Divider(height: 48),
-            if (widget.anime.previewYoutubeId != null)
-              _buildYoutubeThumbnail(context, widget.anime.previewYoutubeId!, '次回予告'),
-            Text(
-              'あらすじ',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.anime.summary ?? 'あらすじ情報がありません。',
-              style: const TextStyle(height: 1.6, color: Colors.black87),
-            ),
-            const Divider(height: 48),
-            if (widget.anime.opYoutubeId != null)
-              _buildYoutubeThumbnail(context, widget.anime.opYoutubeId!, 'オープニング'),
-            Text(
-              '関連ポスト',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 400,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12.0),
-                child: HashtagWebView(hashtag: widget.anime.title),
-              ),
-            ),
-            const SizedBox(height: 32),
-            // Conditionally display the "Read Original" button
-            if (widget.anime.originalVol != null && widget.anime.sourceLinks?.mangaAmazon != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
-                child: Center(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      final url = _buildAmazonUrl(widget.anime.sourceLinks!.mangaAmazon!);
-                      _launchURL(context, url);
-                    },
-                    icon: const Icon(Icons.book_outlined),
-                    label: Text('原作 第${widget.anime.originalVol}巻を読む (Kindle)'),
-                    style: ElevatedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      backgroundColor: const Color(0xFFF09819),
-                    ),
-                  ),
-                ),
-              ),
-            // グッズ情報の表示
-            if (widget.anime.sourceLinks?.goods != null && widget.anime.sourceLinks!.goods!.isNotEmpty) ...[
-              Text(
-                '関連グッズ・円盤',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 12),
-              ...widget.anime.sourceLinks!.goods!.map((item) {
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: Icon(_getIconForGoodsType(item.type)),
-                    title: Text(item.name, style: const TextStyle(fontSize: 14)),
-                    subtitle: Text(item.type, style: const TextStyle(fontSize: 12)),
-                    trailing: const Icon(Icons.open_in_new, size: 18),
-                    onTap: () => _launchURL(context, item.url),
-                  ),
-                );
-              }),
-              const SizedBox(height: 24),
-            ],
-            Center(
-              child: ElevatedButton.icon(
-                onPressed: () => _launchURL(context, widget.anime.sourceLinks?.goods?.firstOrNull?.url ?? "https://flutter.dev"), // Placeholder
-                icon: const Icon(Icons.public),
-                label: const Text('公式サイトを見る'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Center(
-              child: TextButton.icon(
+              IconButton(
+                icon: const Icon(Icons.hourglass_bottom),
+                tooltip: '30秒後にテスト通知',
                 onPressed: () {
-                  final githubUrl = 'https://github.com/lalate/anicheck-data/edit/master/current/${widget.anime.id}_master.json';
-                  _launchURL(context, githubUrl);
-                },
-                icon: const Icon(Icons.edit_note, size: 18),
-                label: const Text('番組データを修正する (GitHub)', style: TextStyle(fontSize: 12)),
-                style: TextButton.styleFrom(foregroundColor: Colors.grey),
-              ),
-            ),
-            const SizedBox(height: 32),
-            Center(
-              child: Builder(
-                builder: (BuildContext buttonContext) {
-                  return OutlinedButton.icon(
-                    onPressed: () => _addToCalendar(buttonContext),
-                    icon: const Icon(Icons.calendar_month_outlined),
-                    label: const Text('カレンダーに追加'),
+                  NotificationService.scheduleTestNotification(widget.anime);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('30秒後にテスト通知を予約しました')),
                   );
                 },
               ),
+              IconButton(
+                icon: Icon(_isNotified
+                    ? Icons.notifications
+                    : Icons.notifications_none),
+                color: _isNotified ? Colors.orange : Colors.grey,
+                onPressed: _toggleNotification,
+              ),
+            ],
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // エピソードタイトル
+                  if (widget.anime.episodeTitle != null &&
+                      widget.anime.episodeTitle!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Text(
+                        '#${widget.anime.epNum} ${widget.anime.episodeTitle}',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                    ),
+                  // 情報チップ（話数・放送局・ステータス）
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      if (widget.anime.epNum != null)
+                        Chip(label: Text('第${widget.anime.epNum}話')),
+                      Chip(label: Text(widget.anime.station)),
+                      if (widget.anime.status != null &&
+                          widget.anime.status!.isNotEmpty)
+                        Chip(label: Text(widget.anime.status!)),
+                    ],
+                  ),
+                  const Divider(height: 48),
+                  // 次回予告
+                  if (widget.anime.previewYoutubeId != null)
+                    _buildYoutubeThumbnail(
+                        context, widget.anime.previewYoutubeId!, '次回予告'),
+                  // あらすじ
+                  _buildSection(
+                    context,
+                    title: 'あらすじ',
+                    child: Text(
+                      widget.anime.summary ?? 'あらすじ情報がありません。',
+                      style: const TextStyle(height: 1.6, color: Colors.black87),
+                    ),
+                  ),
+                  // オープニング
+                  if (widget.anime.opYoutubeId != null)
+                    _buildYoutubeThumbnail(
+                        context, widget.anime.opYoutubeId!, 'オープニング'),
+                  // 関連ポスト
+                  _buildSection(
+                    context,
+                    title: '関連ポスト',
+                    child: SizedBox(
+                      height: 400,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12.0),
+                        child: HashtagWebView(
+                          hashtag: widget.anime.title,
+                          onSpoilerModeChanged: (mode) => setState(() => _currentSpoilerMode = mode),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // 原作ボタン
+                  if (widget.anime.originalVol != null &&
+                      widget.anime.sourceLinks?.mangaAmazon != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16.0),
+                      child: Center(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            final url = _buildAmazonUrl(
+                                widget.anime.sourceLinks!.mangaAmazon!);
+                            _launchURL(context, url);
+                          },
+                          icon: const Icon(Icons.book_outlined),
+                          label: Text(
+                              '原作 第${widget.anime.originalVol}巻を読む (Kindle)'),
+                          style: ElevatedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            backgroundColor: const Color(0xFFF09819),
+                          ),
+                        ),
+                      ),
+                    ),
+                  // 関連グッズ・円盤カルーセル
+                  if (widget.anime.sourceLinks?.goods != null &&
+                      widget.anime.sourceLinks!.goods!.isNotEmpty)
+                    _buildSection(
+                      context,
+                      title: '関連グッズ・円盤',
+                      child: SizedBox(
+                        height: 110,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: widget.anime.sourceLinks!.goods!.length,
+                          itemBuilder: (context, index) {
+                            final item =
+                                widget.anime.sourceLinks!.goods![index];
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8.0),
+                              child: GestureDetector(
+                                onTap: () => _launchURL(context, item.url),
+                                child: Card(
+                                  child: SizedBox(
+                                    width: 120,
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(8.0),
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                              _getIconForGoodsType(item.type),
+                                              size: 32),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            item.name,
+                                            style: const TextStyle(fontSize: 11),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  // 外部リンク
+                  _buildSection(
+                    context,
+                    title: '外部リンク',
+                    child: Column(
+                      children: [
+                        Center(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _launchURL(
+                                context,
+                                widget.anime.sourceLinks?.goods?.firstOrNull
+                                        ?.url ??
+                                    'https://flutter.dev'),
+                            icon: const Icon(Icons.public),
+                            label: const Text('公式サイトを見る'),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Center(
+                          child: TextButton.icon(
+                            onPressed: () {
+                              final githubUrl =
+                                  'https://github.com/lalate/anicheck-data/edit/master/current/${widget.anime.id}_master.json';
+                              _launchURL(context, githubUrl);
+                            },
+                            icon: const Icon(Icons.edit_note, size: 18),
+                            label: const Text('番組データを修正する (GitHub)',
+                                style: TextStyle(fontSize: 12)),
+                            style: TextButton.styleFrom(
+                                foregroundColor: Colors.grey),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  Center(
+                    child: Builder(
+                      builder: (BuildContext buttonContext) {
+                        return OutlinedButton.icon(
+                          onPressed: () => _addToCalendar(buttonContext),
+                          icon: const Icon(Icons.calendar_month_outlined),
+                          label: const Text('カレンダーに追加'),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
+enum TagMode { anicheck, official }
+
+enum SpoilerMode { clean, spoiler }
+
 class HashtagWebView extends StatefulWidget {
   final String hashtag;
+  final void Function(SpoilerMode)? onSpoilerModeChanged;
 
-  const HashtagWebView({super.key, required this.hashtag});
+  const HashtagWebView({super.key, required this.hashtag, this.onSpoilerModeChanged});
 
   @override
   State<HashtagWebView> createState() => _HashtagWebViewState();
@@ -1261,13 +1342,28 @@ class HashtagWebView extends StatefulWidget {
 
 class _HashtagWebViewState extends State<HashtagWebView> {
   late final WebViewController _controller;
+  TagMode _tagMode = TagMode.official;
+  SpoilerMode _spoilerMode = SpoilerMode.clean;
+
+  String _buildUrl() {
+    final cleanHashtag = widget.hashtag.replaceAll(RegExp(r"[\s/:!?'.,]"), '');
+    String query = '#$cleanHashtag';
+    if (_tagMode == TagMode.anicheck) query += ' #アニちぇっく';
+    if (_spoilerMode == SpoilerMode.clean) {
+      query += ' -#ネタバレ';
+    } else {
+      query += ' #ネタバレ';
+    }
+    return 'https://twitter.com/search?q=${Uri.encodeComponent(query)}&f=live';
+  }
+
+  void _loadUrl() {
+    _controller.loadRequest(Uri.parse(_buildUrl()));
+  }
 
   @override
   void initState() {
     super.initState();
-
-    final cleanHashtag = widget.hashtag.replaceAll(RegExp(r"[\s/:!?'.,]"), '');
-    final url = 'https://twitter.com/hashtag/$cleanHashtag';
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -1291,29 +1387,76 @@ class _HashtagWebViewState extends State<HashtagWebView> {
             return NavigationDecision.navigate;
           },
         ),
-      )
-      ..loadRequest(Uri.parse(url));
+      );
 
     // setBackgroundColor is not supported on macOS, so we only call it on other platforms.
     if (!Platform.isMacOS) {
       _controller.setBackgroundColor(const Color(0x00000000));
     }
+    _loadUrl();
   }
 
   @override
   Widget build(BuildContext context) {
-    return WebViewWidget(controller: _controller);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+          child: CupertinoSegmentedControl<TagMode>(
+            groupValue: _tagMode,
+            children: const {
+              TagMode.official: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('公式タグ'),
+              ),
+              TagMode.anicheck: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('アニちぇっくID'),
+              ),
+            },
+            onValueChanged: (value) {
+              setState(() => _tagMode = value);
+              _loadUrl();
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+          child: CupertinoSegmentedControl<SpoilerMode>(
+            groupValue: _spoilerMode,
+            children: const {
+              SpoilerMode.clean: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('クリーン'),
+              ),
+              SpoilerMode.spoiler: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('ネタバレ'),
+              ),
+            },
+            onValueChanged: (value) {
+              setState(() => _spoilerMode = value);
+              widget.onSpoilerModeChanged?.call(value);
+              _loadUrl();
+            },
+          ),
+        ),
+        Expanded(child: WebViewWidget(controller: _controller)),
+      ],
+    );
   }
 }
 
 class ComposeXPostSheet extends StatefulWidget {
   final String initialText;
   final String hashtag;
+  final SpoilerMode spoilerMode;
 
   const ComposeXPostSheet({
     super.key,
     required this.initialText,
     required this.hashtag,
+    this.spoilerMode = SpoilerMode.clean,
   });
 
   @override
@@ -1338,9 +1481,12 @@ class _ComposeXPostSheetState extends State<ComposeXPostSheet> {
 
   void _postToX() {
     final text = _textController.text;
+    final extraTags = widget.spoilerMode == SpoilerMode.spoiler
+        ? '${widget.hashtag},アニちぇっく,ネタバレ'
+        : '${widget.hashtag},アニちぇっく';
     final url = 'https://twitter.com/intent/tweet'
         '?text=${Uri.encodeComponent(text)}'
-        '&hashtags=${Uri.encodeComponent(widget.hashtag)}';
+        '&hashtags=${Uri.encodeComponent(extraTags)}';
 
     AppLogger.log('Sharing on X from sheet: $url');
     launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);

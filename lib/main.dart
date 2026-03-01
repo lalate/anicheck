@@ -1377,6 +1377,7 @@ class _HashtagWebViewState extends State<HashtagWebView> {
         <a class="twitter-timeline" 
            data-chrome="noheader nofooter noborders transparent"
            data-dnt="true"
+           data-theme="dark"
            href="$searchUrl">
            Tweets about $query
         </a>

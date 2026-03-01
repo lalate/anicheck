@@ -1420,16 +1420,26 @@ class _HashtagWebViewState extends State<HashtagWebView> {
           onProgress: (int progress) {
             AppLogger.log('WebView loading: $progress%');
           },
-          onPageStarted: (String url) {},
-          onPageFinished: (String url) {},
+          onPageStarted: (String url) {
+            AppLogger.log('WebView page started loading: $url');
+          },
+          onPageFinished: (String url) {
+            AppLogger.log('WebView page finished loading: $url');
+          },
           onWebResourceError: (WebResourceError error) {
-            AppLogger.log('WebView error: ${error.description}');
+            AppLogger.log('WebView error: code=${error.errorCode}, description=${error.description}, errorType=${error.errorType}');
           },
           onNavigationRequest: (NavigationRequest request) {
+            // Allow about:blank for internal widget rendering
+            if (request.url == 'about:blank') {
+              AppLogger.log('Allowed navigation to: ${request.url}');
+              return NavigationDecision.navigate;
+            }
             if (!request.url.startsWith('http')) {
               AppLogger.log('Blocked navigation to: ${request.url}');
               return NavigationDecision.prevent;
             }
+            AppLogger.log('Navigation requested to: ${request.url}');
             return NavigationDecision.navigate;
           },
         ),

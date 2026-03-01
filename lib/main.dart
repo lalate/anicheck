@@ -12,6 +12,7 @@ import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import 'package:share_plus/share_plus.dart';
 
 class AppLogger {
@@ -1104,7 +1105,7 @@ END:VCALENDAR
             flexibleSpace: FlexibleSpaceBar(
               title: Text(
                 widget.anime.title,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                 overflow: TextOverflow.ellipsis,
               ),
               background: headerYoutubeId.isNotEmpty
@@ -1389,14 +1390,28 @@ class _HashtagWebViewState extends State<HashtagWebView> {
   }
 
   void _loadUrl() {
-    _controller.loadHtmlString(_buildHtml());
+    if (Platform.isIOS || Platform.isMacOS) {
+      _controller.loadHtmlString(_buildHtml(), baseUrl: 'https://platform.twitter.com');
+    } else {
+      _controller.loadHtmlString(_buildHtml());
+    }
   }
 
   @override
   void initState() {
     super.initState();
 
-    _controller = WebViewController()
+    late final PlatformWebViewControllerCreationParams params;
+    if (Platform.isIOS || Platform.isMacOS) {
+      params = WebKitWebViewControllerCreationParams(
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+      );
+    } else {
+      params = const PlatformWebViewControllerCreationParams();
+    }
+
+    _controller = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       // Set a desktop-like user agent to avoid app-opening redirects
       ..setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36')

@@ -1345,7 +1345,7 @@ class _HashtagWebViewState extends State<HashtagWebView> {
   TagMode _tagMode = TagMode.official;
   SpoilerMode _spoilerMode = SpoilerMode.clean;
 
-  String _buildUrl() {
+  String _buildHtml() {
     final cleanHashtag = widget.hashtag.replaceAll(RegExp(r"[\s/:!?'.,]"), '');
     String query = '#$cleanHashtag';
     if (_tagMode == TagMode.anicheck) query += ' #アニちぇっく';
@@ -1354,11 +1354,40 @@ class _HashtagWebViewState extends State<HashtagWebView> {
     } else {
       query += ' #ネタバレ';
     }
-    return 'https://twitter.com/search?q=${Uri.encodeComponent(query)}&f=live';
+    
+    final encodedQuery = Uri.encodeComponent(query);
+    final searchUrl = 'https://twitter.com/search?q=$encodedQuery';
+
+    return '''
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body { 
+            margin: 0; 
+            padding: 0; 
+            background-color: transparent; 
+            display: flex;
+            justify-content: center;
+          }
+        </style>
+      </head>
+      <body>
+        <a class="twitter-timeline" 
+           data-chrome="noheader nofooter noborders transparent"
+           data-dnt="true"
+           href="$searchUrl">
+           Tweets about $query
+        </a>
+        <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+      </body>
+      </html>
+    ''';
   }
 
   void _loadUrl() {
-    _controller.loadRequest(Uri.parse(_buildUrl()));
+    _controller.loadHtmlString(_buildHtml());
   }
 
   @override

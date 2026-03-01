@@ -1347,6 +1347,18 @@ class _HashtagWebViewState extends State<HashtagWebView> {
   TagMode _tagMode = TagMode.official;
   SpoilerMode _spoilerMode = SpoilerMode.clean;
 
+  String _buildUrl() {
+    final cleanHashtag = widget.hashtag.replaceAll(RegExp(r"[\s/:!?'.,]"), '');
+    String query = '#$cleanHashtag';
+    if (_tagMode == TagMode.anicheck) query += ' #アニちぇっく';
+    if (_spoilerMode == SpoilerMode.clean) {
+      query += ' -#ネタバレ';
+    } else {
+      query += ' #ネタバレ';
+    }
+    return 'https://twitter.com/search?q=${Uri.encodeComponent(query)}&f=live';
+  }
+
   String _buildHtml() {
     final cleanHashtag = widget.hashtag.replaceAll(RegExp(r"[\s/:!?'.,]"), '');
     String query = '#$cleanHashtag';
@@ -1380,6 +1392,7 @@ class _HashtagWebViewState extends State<HashtagWebView> {
            data-chrome="noheader nofooter noborders transparent"
            data-dnt="true"
            data-theme="dark"
+           target="_blank"
            href="$searchUrl">
            Tweets about $query
         </a>
@@ -1390,7 +1403,10 @@ class _HashtagWebViewState extends State<HashtagWebView> {
   }
 
   void _loadUrl() {
-    if (Platform.isIOS || Platform.isMacOS) {
+    if (Platform.isMacOS) {
+      // macOS crashes with the embedded widget HTML, so fallback to direct URL loading
+      _controller.loadRequest(Uri.parse(_buildUrl()));
+    } else if (Platform.isIOS) {
       _controller.loadHtmlString(_buildHtml(), baseUrl: 'https://platform.twitter.com');
     } else {
       _controller.loadHtmlString(_buildHtml());

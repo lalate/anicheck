@@ -980,13 +980,15 @@ END:VCALENDAR
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-        ),
-        const SizedBox(height: 8),
+        if (label.isNotEmpty) ...[
+          Text(
+            label,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 8),
+        ],
         GestureDetector(
           onTap: () => _launchURL(
             context,
@@ -1182,9 +1184,14 @@ END:VCALENDAR
                     ),
                   ),
                   // オープニング
-                  if (widget.anime.opYoutubeId != null)
-                    _buildYoutubeThumbnail(
-                        context, widget.anime.opYoutubeId!, 'オープニング'),
+                  if (widget.anime.opYoutubeId != null &&
+                      widget.anime.opYoutubeId != widget.anime.previewYoutubeId)
+                    _buildSection(
+                      context,
+                      title: 'オープニング',
+                      child: _buildYoutubeThumbnail(
+                          context, widget.anime.opYoutubeId!, ''),
+                    ),
                   // 関連ポスト
                   _buildSection(
                     context,
@@ -1203,8 +1210,9 @@ END:VCALENDAR
                   // 原作ボタン
                   if (widget.anime.originalVol != null &&
                       widget.anime.sourceLinks?.mangaAmazon != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16.0),
+                    _buildSection(
+                      context,
+                      title: '原作をチェック',
                       child: Center(
                         child: ElevatedButton.icon(
                           onPressed: () {
@@ -1290,6 +1298,18 @@ END:VCALENDAR
                         ),
                         const SizedBox(height: 8),
                         Center(
+                          child: Builder(
+                            builder: (BuildContext buttonContext) {
+                              return OutlinedButton.icon(
+                                onPressed: () => _addToCalendar(buttonContext),
+                                icon: const Icon(Icons.calendar_month_outlined),
+                                label: const Text('カレンダーに追加'),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Center(
                           child: TextButton.icon(
                             onPressed: () {
                               final githubUrl =
@@ -1304,18 +1324,6 @@ END:VCALENDAR
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  Center(
-                    child: Builder(
-                      builder: (BuildContext buttonContext) {
-                        return OutlinedButton.icon(
-                          onPressed: () => _addToCalendar(buttonContext),
-                          icon: const Icon(Icons.calendar_month_outlined),
-                          label: const Text('カレンダーに追加'),
-                        );
-                      },
                     ),
                   ),
                 ],

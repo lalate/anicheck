@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>アニちぇっく — 今期アニメ一覧</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>🎌 アニちぇっく</h1>
+      <p class="tagline">今期アニメをチェックしよう</p>
+    </div>
+  </header>
+
+  <main>
+    <div class="controls">
+      <input
+        type="search"
+        id="searchInput"
+        placeholder="タイトル・スタジオ・ハッシュタグで検索..."
+        autocomplete="off"
+      />
+      <div class="day-filters" id="dayFilters">
+        <button class="filter-btn active" data-day="all">全て</button>
+        <button class="filter-btn" data-day="月曜日">月</button>
+        <button class="filter-btn" data-day="火曜日">火</button>
+        <button class="filter-btn" data-day="水曜日">水</button>
+        <button class="filter-btn" data-day="木曜日">木</button>
+        <button class="filter-btn" data-day="金曜日">金</button>
+        <button class="filter-btn" data-day="土曜日">土</button>
+        <button class="filter-btn" data-day="日曜日">日</button>
+      </div>
+    </div>
+
+    <div id="loadingMsg" class="loading">データを読み込み中...</div>
+    <div id="errorMsg" class="error" style="display:none;"></div>
+    <div id="animeGrid" class="anime-grid" role="list"></div>
+  </main>
+
+  <!-- Detail Modal -->
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" style="display:none;">
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal-content">
+      <button class="modal-close" id="modalClose" aria-label="閉じる">✕</button>
+      <h2 id="modalTitle"></h2>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <footer>
+    <p>データは <a href="https://github.com/lalate/anicheck-data" target="_blank" rel="noopener">anicheck-data</a> より。
+      誤りは <a href="https://github.com/lalate/anicheck-data/issues" target="_blank" rel="noopener">Issue</a> または
+      <a href="https://github.com/lalate/anicheck-data/pulls" target="_blank" rel="noopener">Pull Request</a> で修正できます。</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時デプロイは1つだけに制限し、キューイング中のランはキャンセルしない
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. メインリポジトリ (docs/ を含む) をチェックアウト ──
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+        with:
+          path: main-repo
+
+      # ── 2. データリポジトリ (anicheck-data) をチェックアウト ──
+      - name: Checkout data repo
+        uses: actions/checkout@v4
+        with:
+          repository: lalate/anicheck-data
+          # パブリックリポジトリの場合トークン不要。
+          # プライベートの場合は Personal Access Token を
+          # Settings > Secrets > DATA_REPO_TOKEN に登録し、下行を有効化:
+          # token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: data-repo
+
+      # ── 3. docs/data/ にJSONをコピー & anime_list.json を生成 ──
+      - name: Copy data files and generate anime_list.json
+        run: |
+          set -euo pipefail
+
+          mkdir -p main-repo/docs/data/current
+
+          # トップレベルJSONをコピー（存在するもののみ）
+          for f in broadcast.json episode.json; do
+            [ -f "data-repo/$f" ] && cp "data-repo/$f" "main-repo/docs/data/$f" || true
+          done
+
+          # current/ 配下を全コピー
+          if [ -d "data-repo/current" ]; then
+            cp -r data-repo/current/. main-repo/docs/data/current/
+          fi
+
+          # current/*_master.json を結合して anime_list.json を生成
+          python3 - << 'PYEOF'
+          import json, glob, os, sys
+
+          master_files = sorted(glob.glob('data-repo/current/*_master.json'))
+          anime_list = []
+          for path in master_files:
+              try:
+                  with open(path, encoding='utf-8') as f:
+                      data = json.load(f)
+                  anime_list.append(data)
+              except Exception as e:
+                  print(f'[WARN] スキップ: {path} ({e})', file=sys.stderr)
+
+          out_path = 'main-repo/docs/data/anime_list.json'
+          with open(out_path, 'w', encoding='utf-8') as f:
+              json.dump(anime_list, f, ensure_ascii=False, indent=2)
+
+          print(f'[OK] anime_list.json を生成しました ({len(anime_list)} 件)')
+          PYEOF
+
+      # ── 4. GitHub Pages の設定 ──
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      # ── 5. docs/ ディレクトリ全体をアーティファクトとしてアップロード ──
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: main-repo/docs
+
+      # ── 6. GitHub Pages にデプロイ ──
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

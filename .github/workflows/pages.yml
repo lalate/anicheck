@@ -58,9 +58,13 @@ jobs:
             cp -r data-repo/current/. main-repo/docs/data/current/
           fi
 
-          # current/*_master.json を結合して anime_list.json を生成
+          # 依存関係のインストール
+          pip install requests
+
+          # current/*_master.json を結合し、Jikan APIから画像URLを取得して anime_list.json を生成
           python3 - << 'PYEOF'
-          import json, glob, os, sys
+          import json, glob, os, sys, time, requests
+          from urllib.parse import quote
 
           master_files = sorted(glob.glob('data-repo/current/*_master.json'))
           anime_list = []
@@ -71,6 +75,43 @@ jobs:
                   anime_list.append(data)
               except Exception as e:
                   print(f'[WARN] スキップ: {path} ({e})', file=sys.stderr)
+
+          # Jikan APIから画像URLを取得
+          for i, anime in enumerate(anime_list):
+              title = anime.get('title', '')
+              if not title:
+                  anime['image_url'] = None
+                  continue
+
+              query = quote(title)
+              url = f"https://api.jikan.moe/v4/anime?q={query}"
+              try:
+                  response = requests.get(url, timeout=10)
+                  if response.status_code == 429:
+                      print(f'[WARN] Rate limit hit for {title}. Sleeping 5 seconds...', file=sys.stderr)
+                      time.sleep(5)
+                      response = requests.get(url, timeout=10)
+                  response.raise_for_status()
+                  data = response.json()
+                  if data.get('data') and len(data['data']) > 0:
+                      images = data['data'][0]['images']
+                      image_url = images.get('jpg', {}).get('image_url') or images.get('webp', {}).get('image_url')
+                      anime['image_url'] = image_url if image_url else None
+                      print(f'[INFO] Found image for {title}: {image_url}')
+                  else:
+                      anime['image_url'] = None
+                      print(f'[WARN] No image found for {title}')
+              except Exception as e:
+                  print(f"[ERROR] fetching image for {title}: {e}", file=sys.stderr)
+                  anime['image_url'] = None
+
+              # レートリミット対応 (3 requests/second)
+              time.sleep(0.4)
+
+              # 分制限対応 (60 requests/minute) - 少し余裕を持たせて50件ごとに60秒待機
+              if (i + 1) % 50 == 0:
+                  print("[INFO] Waiting for minute rate limit...", file=sys.stderr)
+                  time.sleep(60)
 
           out_path = 'main-repo/docs/data/anime_list.json'
           with open(out_path, 'w', encoding='utf-8') as f:

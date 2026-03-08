@@ -137,15 +137,20 @@ function cardHTML({ master, broadcast }) {
   const time = broadcast[0] ? formatTime(broadcast[0].start_time) : '';
   const studio = master.staff?.studio ?? '';
   const hashtag = master.hashtag ?? '';
+  // Fallback to a placeholder if image_url is missing
+  const imageUrl = master.image_url || 'https://via.placeholder.com/300x400/2a2a2a/ffffff?text=No+Image';
 
   return `
     <article class="anime-card" data-anime-id="${esc(master.anime_id)}" role="listitem" tabindex="0"
       aria-label="${esc(master.title)}">
-      <div class="card-title">${esc(master.title)}</div>
-      <div class="card-meta">
-        ${day ? `<span class="day-badge">${esc(day)} ${time}</span>` : ''}
-        ${studio ? `<span class="tag studio-tag">${esc(studio)}</span>` : ''}
-        ${hashtag ? `<span class="tag">${esc(hashtag)}</span>` : ''}
+      <div class="card-image" style="background-image: url('${esc(imageUrl)}');"></div>
+      <div class="card-content">
+        <div class="card-title">${esc(master.title)}</div>
+        <div class="card-meta">
+          ${day ? `<span class="day-badge">${esc(day)} ${time}</span>` : ''}
+          ${studio ? `<span class="tag studio-tag">${esc(studio)}</span>` : ''}
+          ${hashtag ? `<span class="tag">${esc(hashtag)}</span>` : ''}
+        </div>
       </div>
     </article>`;
 }

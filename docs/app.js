@@ -40,10 +40,12 @@ async function loadData() {
       broadcastMap[b.anime_id].push(b);
     }
 
-    allAnime = masterList.map(m => ({
-      master:    m,
-      broadcast: broadcastMap[m.anime_id] || [],
-    }));
+    allAnime = masterList
+      .filter(m => m.anime_id && m.title)  // anime_id または title が無いアイテムをスキップ
+      .map(m => ({
+        master:    m,
+        broadcast: broadcastMap[m.anime_id] || [],
+      }));
 
     loadingEl.style.display = 'none';
     render();
@@ -102,7 +104,7 @@ function render() {
   // カードクリックでモーダル表示
   grid.querySelectorAll('.anime-card').forEach(card => {
     card.addEventListener('click', () => {
-      const id = card.dataset.id;
+      const id = card.dataset.animeId;
       const item = allAnime.find(a => a.master.anime_id === id);
       if (item) openModal(item);
     });
@@ -137,7 +139,7 @@ function cardHTML({ master, broadcast }) {
   const hashtag = master.hashtag ?? '';
 
   return `
-    <article class="anime-card" data-id="${esc(master.anime_id)}" role="listitem" tabindex="0"
+    <article class="anime-card" data-anime-id="${esc(master.anime_id)}" role="listitem" tabindex="0"
       aria-label="${esc(master.title)}">
       <div class="card-title">${esc(master.title)}</div>
       <div class="card-meta">

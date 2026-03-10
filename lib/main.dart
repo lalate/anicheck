@@ -87,30 +87,30 @@ class NotificationService {
   }
 
   static Future<void> scheduleNotification(Anime anime) async {
-    final id = anime.title.hashCode;
-    final timeParts = anime.time.split(':');
-    if (timeParts.length != 2) return;
-
-    final hour = int.tryParse(timeParts[0]);
-    final minute = int.tryParse(timeParts[1]);
-    if (hour == null || minute == null) return;
+    if (anime.startTime == null) return;
 
     final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
-    tz.TZDateTime scheduledDate =
-        tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
-
-    // もし今日の放送時間が既に過ぎていたら、明日の同じ時間に予約する
-    if (scheduledDate.isBefore(now)) {
-      scheduledDate = scheduledDate.add(const Duration(days: 1));
-    }
+    final tz.TZDateTime scheduledDate = tz.TZDateTime.from(anime.startTime!, tz.local);
 
     // 放送5分前に設定
     final notificationTime = scheduledDate.subtract(const Duration(minutes: 5));
 
+    // もし通知時間が既に過ぎていたらスキップする
+    if (notificationTime.isBefore(now)) {
+      AppLogger.log('Notification time $notificationTime for ${anime.title} is in the past. Skipped.');
+      return;
+    }
+
+    // IDはタイトルと放送時間のハッシュにする（一意性を高める）
+    final id = '${anime.title}_${anime.startTime!.millisecondsSinceEpoch}'.hashCode;
+
+    // 既存の同名通知をキャンセル（重複防止）
+    await _notificationsPlugin.cancel(id);
+
     await _notificationsPlugin.zonedSchedule(
       id,
       'まもなく放送開始',
-      anime.title,
+      '${anime.title} が5分後に始まります。',
       notificationTime,
       const NotificationDetails(
         android: AndroidNotificationDetails(
@@ -333,6 +333,7 @@ class Anime {
   bool isNotified;
   final SourceLinks? sourceLinks;
   final String? summary;
+  final DateTime? startTime;
 
   Anime({
     required this.id,
@@ -349,6 +350,7 @@ class Anime {
     required this.isNotified,
     this.sourceLinks,
     this.summary,
+    this.startTime,
   });
 
   factory Anime.fromJson(Map<String, dynamic> json) {
@@ -367,6 +369,7 @@ class Anime {
       isNotified: json['isNotified'] ?? false,
       sourceLinks: json['source_links'] != null ? SourceLinks.fromJson(json['source_links']) : null,
       summary: json['summary'],
+      startTime: json['start_time'] != null ? DateTime.parse(json['start_time']) : null,
     );
   }
 }
@@ -578,6 +581,7 @@ class _MainScreenState extends State<MainScreen> {
               isNotified: isNotified,
               sourceLinks: SourceLinks.fromJson(master.sources),
               summary: episode.prevSummary,
+              startTime: schedule.startTime,
             ));
           }
         } catch (e) {
@@ -587,6 +591,13 @@ class _MainScreenState extends State<MainScreen> {
 
       // 放送時間順にソート
       mergedList.sort((a, b) => a.time.compareTo(b.time));
+
+      // 通知がONになっているアニメは再度スケジュールを更新して同期する
+      for (final anime in mergedList) {
+        if (anime.isNotified) {
+          await NotificationService.scheduleNotification(anime);
+        }
+      }
 
       AppLogger.log('Loaded ${mergedList.length} items from GitHub data (Filtered).');
       return mergedList;

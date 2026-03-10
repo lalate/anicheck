@@ -76,7 +76,7 @@ jobs:
               except Exception as e:
                   print(f'[WARN] スキップ: {path} ({e})', file=sys.stderr)
 
-          # Jikan APIから画像URLを取得
+          # Jikan APIから情報を取得
           for i, anime in enumerate(anime_list):
               title = anime.get('title', '')
               if not title:
@@ -94,15 +94,46 @@ jobs:
                   response.raise_for_status()
                   data = response.json()
                   if data.get('data') and len(data['data']) > 0:
-                      images = data['data'][0]['images']
+                      # 先頭のデータを利用
+                      jikan_data = data['data'][0]
+                      
+                      # 1. 画像URL
+                      images = jikan_data.get('images', {})
                       image_url = images.get('jpg', {}).get('image_url') or images.get('webp', {}).get('image_url')
                       anime['image_url'] = image_url if image_url else None
-                      print(f'[INFO] Found image for {title}: {image_url}')
+                      
+                      # 2. Genres / Themes
+                      genres = [g['name'] for g in jikan_data.get('genres', [])]
+                      themes = [t['name'] for t in jikan_data.get('themes', [])]
+                      anime['genres'] = genres
+                      anime['themes'] = themes
+                      
+                      # 3. Studio
+                      studios = [s['name'] for s in jikan_data.get('studios', [])]
+                      if studios:
+                          anime['jikan_studio'] = studios[0] # Grokのstaff.studioを上書き可能に
+                          
+                      # 4. Trailer
+                      trailer = jikan_data.get('trailer', {})
+                      if trailer.get('youtube_id'):
+                          anime['jikan_trailer_url'] = trailer.get('url')
+                          anime['jikan_trailer_id'] = trailer.get('youtube_id')
+                          
+                      # 5. Status & Source
+                      anime['jikan_status'] = jikan_data.get('status')
+                      anime['jikan_source'] = jikan_data.get('source')
+                      
+                      # 6. Titles (English/Japanese)
+                      titles = jikan_data.get('titles', [])
+                      anime['title_english'] = next((t['title'] for t in titles if t['type'] == 'English'), None)
+                      anime['title_japanese'] = next((t['title'] for t in titles if t['type'] == 'Japanese'), None)
+                      
+                      print(f'[INFO] Enriched data for {title}: {image_url}')
                   else:
                       anime['image_url'] = None
-                      print(f'[WARN] No image found for {title}')
+                      print(f'[WARN] No data found for {title}')
               except Exception as e:
-                  print(f"[ERROR] fetching image for {title}: {e}", file=sys.stderr)
+                  print(f"[ERROR] fetching data for {title}: {e}", file=sys.stderr)
                   anime['image_url'] = None
 
               # レートリミット対応 (3 requests/second)

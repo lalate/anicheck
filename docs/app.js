@@ -135,8 +135,10 @@ function filter(list) {
 function cardHTML({ master, broadcast }) {
   const day  = broadcast[0]?.day_of_week ?? '';
   const time = broadcast[0] ? formatTime(broadcast[0].start_time) : '';
-  const studio = master.staff?.studio ?? '';
+  const studio = master.jikan_studio || master.staff?.studio || '';
   const hashtag = master.hashtag ?? '';
+  const genres = master.genres ? master.genres.slice(0, 3).map(g => `<span class="tag genre-tag">${esc(g)}</span>`).join('') : '';
+
   // Fallback to a placeholder if image_url is missing
   const imageUrl = master.image_url || 'https://via.placeholder.com/300x400/2a2a2a/ffffff?text=No+Image';
 
@@ -149,10 +151,11 @@ function cardHTML({ master, broadcast }) {
         <div class="card-meta">
           ${day ? `<span class="day-badge">${esc(day)} ${time}</span>` : ''}
           ${studio ? `<span class="tag studio-tag">${esc(studio)}</span>` : ''}
-          ${hashtag ? `<span class="tag">${esc(hashtag)}</span>` : ''}
+          ${genres}
         </div>
       </div>
-    </article>`;
+    </article>
+  `;
 }
 
 /* ===== Modal ===== */

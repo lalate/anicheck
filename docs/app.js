@@ -5,10 +5,11 @@
  * data/ へJSONをコピーするため、全てのfetchを相対パスで行う。
  */
 
-const DATA_BASE = './data';
+const DATA_BASE      = './data';
 const ANIME_LIST_URL = `${DATA_BASE}/anime_list.json`;
 const BROADCAST_URL  = `${DATA_BASE}/broadcast_history.json`;
 const WATCH_LIST_URL = `${DATA_BASE}/watch_list.json`;
+const AFFILIATE_ID   = 'anicheck0f-22';
 
 let allAnime     = [];  
 let activeDay    = 'all';
@@ -215,7 +216,8 @@ function buildModalBody(m, broadcast) {
     links.push(`<a class="btn-link btn-official" href="${esc(m.official_url)}" target="_blank" rel="noopener">🌐 公式サイト</a>`);
   }
   if (m.sources?.manga_amazon) {
-    links.push(`<a class="btn-link btn-amazon" href="${esc(m.sources.manga_amazon)}" target="_blank" rel="noopener">📚 原作を購入</a>`);
+    const amazonUrl = buildAmazonUrl(m.sources.manga_amazon);
+    links.push(`<a class="btn-link btn-amazon" href="${esc(amazonUrl)}" target="_blank" rel="noopener">📚 原作を購入</a>`);
   }
   if (links.length) {
     sections.push(`<div class="modal-links">${links.join('')}</div>`);
@@ -229,6 +231,18 @@ function section(heading, content) {
 }
 
 /* ===== Utilities ===== */
+function buildAmazonUrl(baseUrl) {
+  if (!baseUrl) return null;
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set('tag', AFFILIATE_ID);
+    return url.toString();
+  } catch (_) {
+    // URLパースに失敗した場合はそのまま返す
+    return baseUrl;
+  }
+}
+
 function esc(str) {
   if (str == null) return '';
   return String(str)

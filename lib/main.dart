@@ -357,6 +357,7 @@ class Anime {
   final int? epNum;
   final String? episodeTitle;
   final String station;
+  final String? officialUrl;
   final String? status;
   final int? originalVol;
   final String? previewYoutubeId;
@@ -384,6 +385,7 @@ class Anime {
     this.epNum,
     this.episodeTitle,
     required this.station,
+    this.officialUrl,
     this.status,
     this.originalVol,
     this.previewYoutubeId,
@@ -413,6 +415,7 @@ class Anime {
       epNum: json['ep_num'],
       episodeTitle: json['episode_title'],
       station: json['station'],
+      officialUrl: json['official_url'],
       status: json['status'],
       originalVol: json['original_vol'],
       previewYoutubeId: json['preview_youtube_id'],
@@ -1048,7 +1051,7 @@ END:VCALENDAR
   // Amazon URLにアフィリエイトタグを付与する関数
   String _buildAmazonUrl(String url) {
     // TODO: ここにあなたのアフィリエイトIDを設定してください
-    const String affiliateTag = 'anicheck-22';
+    const String affiliateTag = 'anicheck0f-22';
     try {
       final uri = Uri.parse(url);
       final newQueryParameters = Map<String, String>.from(uri.queryParameters);
@@ -1463,8 +1466,7 @@ END:VCALENDAR
                           child: ElevatedButton.icon(
                             onPressed: () => _launchURL(
                                 context,
-                                widget.anime.sourceLinks?.goods?.firstOrNull
-                                        ?.url ??
+                                widget.anime.officialUrl ??
                                     'https://flutter.dev'),
                             icon: const Icon(Icons.public),
                             label: const Text('公式サイトを見る'),

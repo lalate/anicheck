@@ -170,6 +170,18 @@ class AnimeMaster {
   final String stationMaster;
   final String? baseOpYoutubeId;
   final Map<String, dynamic> sources;
+  final String? imageUrl;
+  final List<String>? genres;
+  final List<String>? themes;
+  final String? jikanStudio;
+  final String? jikanTrailerUrl;
+  final String? jikanTrailerId;
+  final String? jikanStatus;
+  final String? jikanSource;
+  final String? titleEnglish;
+  final String? titleJapanese;
+  final Map<String, dynamic>? staff;
+  final List<dynamic>? cast;
 
   AnimeMaster({
     required this.animeId,
@@ -179,6 +191,18 @@ class AnimeMaster {
     required this.stationMaster,
     this.baseOpYoutubeId,
     required this.sources,
+    this.imageUrl,
+    this.genres,
+    this.themes,
+    this.jikanStudio,
+    this.jikanTrailerUrl,
+    this.jikanTrailerId,
+    this.jikanStatus,
+    this.jikanSource,
+    this.titleEnglish,
+    this.titleJapanese,
+    this.staff,
+    this.cast,
   });
 
   factory AnimeMaster.fromJson(Map<String, dynamic> json) {
@@ -190,6 +214,18 @@ class AnimeMaster {
       stationMaster: json['station_master'] ?? '',
       baseOpYoutubeId: json['base_op_youtube_id'],
       sources: json['sources'] ?? {},
+      imageUrl: json['image_url'],
+      genres: (json['genres'] as List?)?.map((e) => e.toString()).toList(),
+      themes: (json['themes'] as List?)?.map((e) => e.toString()).toList(),
+      jikanStudio: json['jikan_studio'],
+      jikanTrailerUrl: json['jikan_trailer_url'],
+      jikanTrailerId: json['jikan_trailer_id'],
+      jikanStatus: json['jikan_status'],
+      jikanSource: json['jikan_source'],
+      titleEnglish: json['title_english'],
+      titleJapanese: json['title_japanese'],
+      staff: json['staff'],
+      cast: json['cast'],
     );
   }
 }
@@ -216,8 +252,8 @@ class AnimeEpisode {
       animeId: json['anime_id'] ?? '',
       epNum: json['ep_num'] ?? 0,
       title: json['title'] ?? '',
-      prevSummary: json['prev_summary'] ?? '',
-      nextPreviewYoutubeId: json['next_preview_youtube_id'],
+      prevSummary: json['summary'] ?? json['prev_summary'] ?? '',
+      nextPreviewYoutubeId: json['preview_youtube_id'] ?? json['next_preview_youtube_id'],
       originalVol: json['original_vol'],
     );
   }
@@ -246,12 +282,9 @@ class AnimeSchedule {
         throw const FormatException('start_time is null or empty');
       }
       
-      // AIがよくやる "24:xx" 表記を "00:xx" の翌日に直す簡易補正（必要なら）
-      // 標準のDateTime.parseは "24:00:00" で落ちることがある
       String safeTimeString = timeString.toString();
       if (safeTimeString.contains('T24:')) {
         safeTimeString = safeTimeString.replaceFirst('T24:', 'T00:');
-        // 本当は日付も1日進めるべきだが、パース落ち回避を優先
       } else if (safeTimeString.contains('T25:')) {
         safeTimeString = safeTimeString.replaceFirst('T25:', 'T01:');
       } else if (safeTimeString.contains('T26:')) {
@@ -261,7 +294,6 @@ class AnimeSchedule {
       parsedTime = DateTime.parse(safeTimeString);
     } catch (e) {
       AppLogger.log('⚠️ [Warning] Failed to parse start_time for anime_id: ${json['anime_id']}. Value was: "$timeString". Error: $e');
-      // パース失敗時はアプリがクラッシュしないよう、現在時刻を入れる（または1970年など）
       parsedTime = DateTime.now(); 
     }
 
@@ -334,6 +366,16 @@ class Anime {
   final SourceLinks? sourceLinks;
   final String? summary;
   final DateTime? startTime;
+  final String? imageUrl;
+  final List<String>? genres;
+  final List<String>? themes;
+  final String? studio;
+  final String? jikanStatus;
+  final String? jikanSource;
+  final String? titleEnglish;
+  final String? titleJapanese;
+  final String? jikanTrailerUrl;
+  final String? jikanTrailerId;
 
   Anime({
     required this.id,
@@ -351,6 +393,16 @@ class Anime {
     this.sourceLinks,
     this.summary,
     this.startTime,
+    this.imageUrl,
+    this.genres,
+    this.themes,
+    this.studio,
+    this.jikanStatus,
+    this.jikanSource,
+    this.titleEnglish,
+    this.titleJapanese,
+    this.jikanTrailerUrl,
+    this.jikanTrailerId,
   });
 
   factory Anime.fromJson(Map<String, dynamic> json) {
@@ -370,6 +422,16 @@ class Anime {
       sourceLinks: json['source_links'] != null ? SourceLinks.fromJson(json['source_links']) : null,
       summary: json['summary'],
       startTime: json['start_time'] != null ? DateTime.parse(json['start_time']) : null,
+      imageUrl: json['image_url'],
+      genres: (json['genres'] as List?)?.map((e) => e.toString()).toList(),
+      themes: (json['themes'] as List?)?.map((e) => e.toString()).toList(),
+      studio: json['studio'] ?? json['jikan_studio'],
+      jikanStatus: json['jikan_status'],
+      jikanSource: json['jikan_source'],
+      titleEnglish: json['title_english'],
+      titleJapanese: json['title_japanese'],
+      jikanTrailerUrl: json['jikan_trailer_url'],
+      jikanTrailerId: json['jikan_trailer_id'],
     );
   }
 }
@@ -512,10 +574,10 @@ class _MainScreenState extends State<MainScreen> {
       await Future.delayed(const Duration(seconds: 1));
 
       // GitHubの生データURL
-      const baseUrl = 'https://raw.githubusercontent.com/lalate/anicheck-data/master/current';
+      const baseUrl = 'https://raw.githubusercontent.com/lalate/anicheck-data/master';
       
       // daily_schedule.jsonを取得
-      final scheduleResponse = await http.get(Uri.parse('$baseUrl/daily_schedule.json'));
+      final scheduleResponse = await http.get(Uri.parse('$baseUrl/current/daily_schedule.json'));
       if (scheduleResponse.statusCode != 200) {
         throw Exception('Failed to load daily_schedule.json: ${scheduleResponse.statusCode}');
       }
@@ -532,8 +594,9 @@ class _MainScreenState extends State<MainScreen> {
       await Future.wait(schedules.map((schedule) async {
         try {
           // MasterデータとEpisodeデータを同時に取得
-          final masterResFuture = http.get(Uri.parse('$baseUrl/${schedule.animeId}_master.json'));
-          final episodeResFuture = http.get(Uri.parse('$baseUrl/${schedule.animeId}_episode.json'));
+          final masterResFuture = http.get(Uri.parse('$baseUrl/database/master/${schedule.animeId}.json'));
+          final epStr = schedule.epNum.toString().padLeft(3, '0');
+          final episodeResFuture = http.get(Uri.parse('$baseUrl/database/episodes/${schedule.animeId}/ep$epStr.json'));
 
           final responses = await Future.wait([masterResFuture, episodeResFuture]);
           final masterRes = responses[0];
@@ -582,6 +645,16 @@ class _MainScreenState extends State<MainScreen> {
               sourceLinks: SourceLinks.fromJson(master.sources),
               summary: episode.prevSummary,
               startTime: schedule.startTime,
+              imageUrl: master.imageUrl,
+              genres: master.genres,
+              themes: master.themes,
+              studio: master.jikanStudio ?? (master.staff != null ? master.staff!['studio'] : null),
+              jikanStatus: master.jikanStatus,
+              jikanSource: master.jikanSource,
+              titleEnglish: master.titleEnglish,
+              titleJapanese: master.titleJapanese,
+              jikanTrailerUrl: master.jikanTrailerUrl,
+              jikanTrailerId: master.jikanTrailerId,
             ));
           }
         } catch (e) {
@@ -1104,10 +1177,43 @@ END:VCALENDAR
     );
   }
 
+  // SliverAppBar用ヘッダー背景（作品画像URL＋グラデーション）
+  Widget _buildImageHeaderBackground(String imageUrl) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.network(
+          imageUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) =>
+              Container(color: Colors.grey[800]),
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.transparent,
+                Colors.black.withOpacity(0.7),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // 優先順位: previewYoutubeId > jikanTrailerId > opYoutubeId
     final headerYoutubeId =
-        widget.anime.previewYoutubeId ?? widget.anime.opYoutubeId ?? '';
+        widget.anime.previewYoutubeId ?? widget.anime.jikanTrailerId ?? widget.anime.opYoutubeId;
+    // 次回予告/予告編セクション用: previewYoutubeId > jikanTrailerId
+    final trailerYoutubeId =
+        widget.anime.previewYoutubeId ?? widget.anime.jikanTrailerId;
+    final trailerLabel =
+        widget.anime.previewYoutubeId != null ? '次回予告' : '予告編';
 
     return Scaffold(
       body: CustomScrollView(
@@ -1121,9 +1227,11 @@ END:VCALENDAR
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                 overflow: TextOverflow.ellipsis,
               ),
-              background: headerYoutubeId.isNotEmpty
+              background: headerYoutubeId != null
                   ? _buildHeaderBackground(headerYoutubeId)
-                  : null,
+                  : widget.anime.imageUrl != null
+                      ? _buildImageHeaderBackground(widget.anime.imageUrl!)
+                      : Container(color: Colors.grey[800]),
             ),
             actions: [
               IconButton(
@@ -1155,6 +1263,19 @@ END:VCALENDAR
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // 英題（存在する場合はグレー・イタリック体で表示）
+                  if (widget.anime.titleEnglish != null &&
+                      widget.anime.titleEnglish!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4.0),
+                      child: Text(
+                        widget.anime.titleEnglish!,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.grey,
+                              fontStyle: FontStyle.italic,
+                            ),
+                      ),
+                    ),
                   // エピソードタイトル
                   if (widget.anime.episodeTitle != null &&
                       widget.anime.episodeTitle!.isNotEmpty)
@@ -1167,7 +1288,7 @@ END:VCALENDAR
                             ),
                       ),
                     ),
-                  // 情報チップ（話数・放送局・ステータス）
+                  // 情報チップ（話数・放送局・ステータス・スタジオ）
                   Wrap(
                     spacing: 8,
                     runSpacing: 4,
@@ -1178,13 +1299,55 @@ END:VCALENDAR
                       if (widget.anime.status != null &&
                           widget.anime.status!.isNotEmpty)
                         Chip(label: Text(widget.anime.status!)),
+                      if (widget.anime.studio != null &&
+                          widget.anime.studio!.isNotEmpty)
+                        Chip(
+                          avatar: const Icon(
+                            Icons.movie_creation_outlined,
+                            size: 16,
+                          ),
+                          label: Text(widget.anime.studio!),
+                          backgroundColor: Colors.blue.shade50,
+                        ),
                     ],
                   ),
+                  // ジャンル・テーマチップ
+                  if ((widget.anime.genres != null &&
+                          widget.anime.genres!.isNotEmpty) ||
+                      (widget.anime.themes != null &&
+                          widget.anime.themes!.isNotEmpty))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          ...?widget.anime.genres?.map(
+                            (g) => Chip(
+                              label: Text(g),
+                              backgroundColor: Colors.teal.shade50,
+                              visualDensity: VisualDensity.compact,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                          ...?widget.anime.themes?.map(
+                            (t) => Chip(
+                              label: Text(t),
+                              backgroundColor: Colors.purple.shade50,
+                              visualDensity: VisualDensity.compact,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   const Divider(height: 48),
-                  // 次回予告
-                  if (widget.anime.previewYoutubeId != null)
+                  // 次回予告 / 予告編
+                  if (trailerYoutubeId != null)
                     _buildYoutubeThumbnail(
-                        context, widget.anime.previewYoutubeId!, '次回予告'),
+                        context, trailerYoutubeId, trailerLabel),
                   // あらすじ
                   _buildSection(
                     context,
@@ -1194,9 +1357,9 @@ END:VCALENDAR
                       style: const TextStyle(height: 1.6, color: Colors.black87),
                     ),
                   ),
-                  // オープニング
+                  // オープニング（trailerYoutubeId と異なる場合のみ表示）
                   if (widget.anime.opYoutubeId != null &&
-                      widget.anime.opYoutubeId != widget.anime.previewYoutubeId)
+                      widget.anime.opYoutubeId != trailerYoutubeId)
                     _buildSection(
                       context,
                       title: 'オープニング',

@@ -618,9 +618,9 @@ class _MainScreenState extends State<MainScreen> {
             episode = AnimeEpisode(animeId: schedule.animeId, epNum: schedule.epNum, title: '', prevSummary: '');
           }
 
-          // 時間のフォーマット (HH:mm)
+          // 時間のフォーマット (MM/DD HH:mm)
           final dt = schedule.startTime;
-          final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+          final timeStr = '${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
           // 保存された通知設定を読み込む
           final notifyKey = 'notify_${master.title}';
@@ -635,7 +635,7 @@ class _MainScreenState extends State<MainScreen> {
               title: master.title,
               epNum: schedule.epNum,
               episodeTitle: episode.title,
-              station: master.stationMaster, // Masterの放送局名を使用
+              station: schedule.stationId, // daily_schedule 個別の放送局名を使用
               status: schedule.status,
               originalVol: episode.originalVol,
               previewYoutubeId: episode.nextPreviewYoutubeId,

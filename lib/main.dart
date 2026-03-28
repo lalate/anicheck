@@ -640,6 +640,7 @@ class _MainScreenState extends State<MainScreen> {
               episodeTitle: episode.title,
               station: schedule.stationId, // daily_schedule 個別の放送局名を使用
               status: schedule.status,
+              officialUrl: master.officialUrl,
               originalVol: episode.originalVol,
               previewYoutubeId: episode.nextPreviewYoutubeId,
               opYoutubeId: master.baseOpYoutubeId,

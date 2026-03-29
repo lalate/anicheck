@@ -14,13 +14,45 @@ const AFFILIATE_ID   = 'anicheck0f-22';
 let allAnime     = [];  
 let activeDay    = 'all';
 let searchQuery  = '';
+let activeSeason = 'all';
+let activeGenre  = 'all';
+let activeStudio = 'all';
+let sortKey      = 'title';
+let isSpoilerEnabled = false;
 
 /* ===== Initialise ===== */
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
+  loadSettings();
   setupControls();
   await loadData();
+}
+
+function loadSettings() {
+  const saved = localStorage.getItem('anicheck_settings');
+  if (saved) {
+    try {
+      const settings = JSON.parse(saved);
+      isSpoilerEnabled = settings.isSpoilerEnabled || false;
+      sortKey = settings.sortKey || 'title';
+      // UIの状態に反映
+      const spoilerEl = document.getElementById('spoilerToggle');
+      if (spoilerEl) spoilerEl.checked = isSpoilerEnabled;
+      const sortEl = document.getElementById('sortSelect');
+      if (sortEl) sortEl.value = sortKey;
+    } catch (e) { console.error('Settings load failed', e); }
+  }
+
+  // URLパラメータの処理
+  const params = new URLSearchParams(window.location.search);
+  const s = params.get('season');
+  if (s) activeSeason = s;
+}
+
+function saveSettings() {
+  const settings = { isSpoilerEnabled, sortKey };
+  localStorage.setItem('anicheck_settings', JSON.stringify(settings));
 }
 
 /* ===== Data loading ===== */
@@ -49,6 +81,7 @@ async function loadData() {
         };
       });
 
+    setupDynamicFilters();
     loadingEl.style.display = 'none';
     render();
   } catch (err) {
@@ -74,7 +107,13 @@ function setupControls() {
     render();
   });
 
-  // 曜日フィルター (V2ではdaily_scheduleを使用するため、静的サイト側ではひとまず「すべて」を基本とする)
+  // シーズン選択
+  document.getElementById('seasonSelect')?.addEventListener('change', e => {
+    activeSeason = e.target.value;
+    render();
+  });
+
+  // 曜日フィルター
   document.getElementById('dayFilters')?.addEventListener('click', e => {
     const btn = e.target.closest('.filter-btn');
     if (!btn) return;
@@ -84,10 +123,96 @@ function setupControls() {
     render();
   });
 
+  // ソート
+  document.getElementById('sortSelect')?.addEventListener('change', e => {
+    sortKey = e.target.value;
+    saveSettings();
+    render();
+  });
+
+  // ネタバレ
+  document.getElementById('spoilerToggle')?.addEventListener('change', e => {
+    isSpoilerEnabled = e.target.checked;
+    saveSettings();
+    render();
+  });
+
   // モーダルを閉じる
   document.getElementById('modalClose')?.addEventListener('click', closeModal);
   document.getElementById('modalBackdrop')?.addEventListener('click', closeModal);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+}
+
+function setupDynamicFilters() {
+  const genres = new Set();
+  const studios = new Set();
+  const seasons = new Set();
+
+  allAnime.forEach(({ master }) => {
+    if (master.genres) master.genres.forEach(g => genres.add(g));
+    const studio = master.jikan_studio || master.studio || master.staff?.studio;
+    if (studio) studios.add(studio);
+    
+    // YYYYMM
+    if (master.anime_id && master.anime_id.length >= 6) {
+      seasons.add(master.anime_id.substring(0, 6));
+    }
+  });
+
+  // シーズン選択肢
+  const seasonSelect = document.getElementById('seasonSelect');
+  if (seasonSelect) {
+    const sortedSeasons = Array.from(seasons).sort().reverse();
+    sortedSeasons.forEach(s => {
+      const year = s.substring(0, 4);
+      const month = s.substring(4, 6);
+      const label = `${year}年 ${month === '01' ? '冬' : month === '04' ? '春' : month === '07' ? '夏' : '秋'}`;
+      const opt = new Option(label, s);
+      seasonSelect.add(opt);
+    });
+    // 初期選択
+    if (activeSeason !== 'all') seasonSelect.value = activeSeason;
+    else if (sortedSeasons.length > 0) {
+      // 最新のシーズンをデフォルトにする（URLパラメータやlocalStorageがない場合）
+      activeSeason = sortedSeasons[0];
+      seasonSelect.value = activeSeason;
+    }
+  }
+
+  // ジャンル・スタジオチップ
+  const container = document.getElementById('dynamicFilters');
+  if (container) {
+    let html = '<b>ジャンル:</b> ';
+    const sortedGenres = Array.from(genres).sort();
+    html += `<span class="chip ${activeGenre==='all'?'active':''}" data-type="genre" data-value="all">全て</span>`;
+    sortedGenres.forEach(g => {
+      html += `<span class="chip ${activeGenre===g?'active':''}" data-type="genre" data-value="${esc(g)}">${esc(g)}</span>`;
+    });
+
+    html += '<br><b>スタジオ:</b> ';
+    const sortedStudios = Array.from(studios).sort();
+    html += `<span class="chip ${activeStudio==='all'?'active':''}" data-type="studio" data-value="all">全て</span>`;
+    sortedStudios.forEach(s => {
+      html += `<span class="chip ${activeStudio===s?'active':''}" data-type="studio" data-value="${esc(s)}">${esc(s)}</span>`;
+    });
+    
+    container.innerHTML = html;
+    
+    container.addEventListener('click', e => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      
+      const type = chip.dataset.type;
+      const val = chip.dataset.value;
+      
+      if (type === 'genre') activeGenre = val;
+      if (type === 'studio') activeStudio = val;
+      
+      container.querySelectorAll(`.chip[data-type="${type}"]`).forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      render();
+    });
+  }
 }
 
 /* ===== Render ===== */
@@ -96,14 +221,15 @@ function render() {
   if (!grid) return;
 
   const filtered = filter(allAnime);
+  const sorted = sort(filtered);
 
-  if (filtered.length === 0) {
+  if (sorted.length === 0) {
     grid.innerHTML = `<p style="color:var(--text-muted);grid-column:1/-1;text-align:center;padding:3rem 0;">
       該当するアニメが見つかりませんでした。</p>`;
     return;
   }
 
-  grid.innerHTML = filtered.map(item => cardHTML(item)).join('');
+  grid.innerHTML = sorted.map(item => cardHTML(item)).join('');
 
   // カードクリックでモーダル表示
   grid.querySelectorAll('.anime-card').forEach(card => {
@@ -117,7 +243,30 @@ function render() {
 
 function filter(list) {
   return list.filter(({ master, broadcast }) => {
-    // 検索フィルター
+    // 1. シーズン
+    if (activeSeason !== 'all' && master.anime_id && !master.anime_id.startsWith(activeSeason)) {
+      return false;
+    }
+
+    // 2. 曜日
+    if (activeDay !== 'all') {
+      const dayMatches = master.station_master?.includes(activeDay) || 
+                         (broadcast?.platforms && Object.values(broadcast.platforms).some(p => p.remarks?.includes(activeDay)));
+      if (!dayMatches) return false;
+    }
+
+    // 3. ジャンル
+    if (activeGenre !== 'all' && (!master.genres || !master.genres.includes(activeGenre))) {
+      return false;
+    }
+
+    // 4. スタジオ
+    if (activeStudio !== 'all') {
+      const studio = master.jikan_studio || master.studio || master.staff?.studio;
+      if (studio !== activeStudio) return false;
+    }
+
+    // 5. 検索フィルター
     if (searchQuery) {
       const haystack = [
         master.title,
@@ -135,15 +284,25 @@ function filter(list) {
   });
 }
 
+function sort(list) {
+  return [...list].sort((a, b) => {
+    if (sortKey === 'score') {
+      return (b.master.score || 0) - (a.master.score || 0);
+    }
+    // デフォルト: タイトル順
+    return a.master.title.localeCompare(b.master.title, 'ja');
+  });
+}
+
 function cardHTML({ master, broadcast }) {
   const studio = master.jikan_studio || master.studio || master.staff?.studio || '';
   const genres = master.genres ? master.genres.slice(0, 3).map(g => `<span class="tag genre-tag">${esc(g)}</span>`).join('') : '';
   const imageUrl = master.image_url || 'https://via.placeholder.com/300x400/2a2a2a/ffffff?text=No+Image';
 
-  // 進捗情報 (broadcast_history.json)
+  // 進捗情報 (ネタバレ解禁時のみ表示)
   let progressHtml = '';
-  if (broadcast && broadcast.overall_latest_ep) {
-     progressHtml = `<span class="day-badge" style="background-color: #ff9800;">最新: 第${broadcast.overall_latest_ep}話</span>`;
+  if (isSpoilerEnabled && broadcast && broadcast.overall_latest_ep) {
+     progressHtml = `<span class="day-badge" style="background-color: #ff9800; color: #fff; padding: 0.1rem 0.4rem; border-radius: 4px;">最新: 第${broadcast.overall_latest_ep}話</span>`;
   }
 
   return `
@@ -157,6 +316,7 @@ function cardHTML({ master, broadcast }) {
           ${master.station_master ? `<span class="tag station-tag">${esc(master.station_master)}</span>` : ''}
           ${studio ? `<span class="tag studio-tag">${esc(studio)}</span>` : ''}
           ${genres}
+          ${master.score ? `<span class="tag score-tag" style="background:rgba(255,215,0,0.1); border-color:gold; color:gold;">★${master.score.toFixed(1)}</span>` : ''}
         </div>
       </div>
     </article>
@@ -179,8 +339,13 @@ function closeModal() {
 function buildModalBody(m, broadcast) {
   const sections = [];
 
-  // 進捗情報
-  if (broadcast && broadcast.platforms) {
+  // スコア
+  if (m.score) {
+    sections.push(`<div class="score-display">★ ${m.score.toFixed(2)}</div>`);
+  }
+
+  // 進捗情報 (ネタバレ解禁時のみ詳細を表示)
+  if (broadcast && broadcast.platforms && isSpoilerEnabled) {
     const rows = Object.entries(broadcast.platforms).map(([station, info]) => {
       const ep = info.last_ep_num ? `第${info.last_ep_num}話` : '';
       const rem = info.remarks ? ` <small>(${esc(info.remarks)})</small>` : '';

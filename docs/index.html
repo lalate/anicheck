@@ -16,21 +16,48 @@
 
   <main>
     <div class="controls">
-      <input
-        type="search"
-        id="searchInput"
-        placeholder="タイトル・スタジオ・ハッシュタグで検索..."
-        autocomplete="off"
-      />
-      <div class="day-filters" id="dayFilters">
-        <button class="filter-btn active" data-day="all">全て</button>
-        <button class="filter-btn" data-day="月曜日">月</button>
-        <button class="filter-btn" data-day="火曜日">火</button>
-        <button class="filter-btn" data-day="水曜日">水</button>
-        <button class="filter-btn" data-day="木曜日">木</button>
-        <button class="filter-btn" data-day="金曜日">金</button>
-        <button class="filter-btn" data-day="土曜日">土</button>
-        <button class="filter-btn" data-day="日曜日">日</button>
+      <div class="control-row">
+        <select id="seasonSelect" class="styled-select">
+          <option value="all">全てのシーズン</option>
+        </select>
+        <div class="search-wrapper">
+          <input
+            type="search"
+            id="searchInput"
+            placeholder="タイトル・スタジオ・ハッシュタグで検索..."
+            autocomplete="off"
+          />
+        </div>
+      </div>
+
+      <div class="control-row secondary-controls">
+        <div class="day-filters" id="dayFilters">
+          <button class="filter-btn active" data-day="all">全て</button>
+          <button class="filter-btn" data-day="月曜日">月</button>
+          <button class="filter-btn" data-day="火曜日">火</button>
+          <button class="filter-btn" data-day="水曜日">水</button>
+          <button class="filter-btn" data-day="木曜日">木</button>
+          <button class="filter-btn" data-day="金曜日">金</button>
+          <button class="filter-btn" data-day="土曜日">土</button>
+          <button class="filter-btn" data-day="日曜日">日</button>
+        </div>
+
+        <div class="extra-filters">
+          <select id="sortSelect" class="styled-select mini-select">
+            <option value="title">タイトル順</option>
+            <option value="score">スコア順</option>
+          </select>
+
+          <label class="toggle-switch">
+            <input type="checkbox" id="spoilerToggle">
+            <span class="slider"></span>
+            <span class="label-text">ネタバレ解禁</span>
+          </label>
+        </div>
+      </div>
+
+      <div id="dynamicFilters" class="dynamic-filters">
+        <!-- Genre and Studio chips will be injected here -->
       </div>
     </div>
 
